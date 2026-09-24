@@ -1,0 +1,16 @@
+R_DEF: Internal format may change without notice
+local
+drawable ic_launcher_background
+drawable ic_launcher_foreground
+mipmap ic_launcher
+mipmap ic_launcher_round
+string action_stop
+string action_test_screenshot
+string app_name
+string service_notification_channel_desc
+string service_notification_channel_name
+string service_notification_text
+string service_notification_title
+style Theme.ScreenArc
+xml backup_rules
+xml data_extraction_rules

@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">ScreenArc</string>
+    <string name="service_notification_channel_name">ScreenArc Overlay Service</string>
+    <string name="service_notification_channel_desc">Active foreground service listening for new screenshots to provide quick arc categorization</string>
+    <string name="service_notification_title">ScreenArc is active</string>
+    <string name="service_notification_text">Listening for screenshots to organize into categories</string>
+    <string name="action_stop">Stop Service</string>
+    <string name="action_test_screenshot">Test Overlay</string>
+</resources>

@@ -1,0 +1,1 @@
+# ScreenArc Proguard Rules
