@@ -133,6 +133,23 @@ class SearchViewModel @JvmOverloads constructor(
         }
     }
 
+    val batchProgress = ocrRepository.batchProgress
+
+    fun processAndIndexAllImages(forceReindex: Boolean = false, language: com.screenarc.app.ocr.OcrLanguage? = null) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isOcrRunning = true)
+            val progress = ocrRepository.processAndIndexAllImages(forceReindex, language)
+            _uiState.value = _uiState.value.copy(
+                isOcrRunning = false,
+                infoMessage = if (progress.isCancelled) {
+                    "OCR indexing cancelled (Indexed: ${progress.indexedCount}, Failed: ${progress.failedCount})"
+                } else {
+                    "OCR indexing completed: ${progress.indexedCount} indexed, ${progress.skippedCount} skipped, ${progress.failedCount} failed"
+                }
+            )
+        }
+    }
+
     fun cancelOcr() {
         viewModelScope.launch {
             ocrRepository.cancelPendingOcr()

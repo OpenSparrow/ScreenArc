@@ -5,17 +5,23 @@ import android.net.Uri
 import android.util.Log
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.google.mlkit.vision.text.TextRecognizer
 import com.screenarc.app.data.local.db.AppDatabase
 import com.screenarc.app.data.local.db.entity.OcrTextEntity
 import com.screenarc.app.data.local.db.entity.ScreenshotEntity
+import com.screenarc.app.model.OcrBatchProgress
 import com.screenarc.app.model.OcrBatchResult
 import com.screenarc.app.model.OcrBlock
 import com.screenarc.app.model.OcrResult
+import com.screenarc.app.ocr.MlKitOcrProvider
+import com.screenarc.app.ocr.OcrEngineProvider
+import com.screenarc.app.ocr.OcrLanguage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -28,18 +34,37 @@ import kotlin.coroutines.resumeWithException
 
 class OcrRepositoryImpl(
     private val context: Context,
-    private val database: AppDatabase = AppDatabase.getInstance(context)
+    private val database: AppDatabase = AppDatabase.getInstance(context),
+    private val settingsRepository: AppSettingsRepository = AppSettingsRepository(context),
+    private val screenshotRepository: ScreenshotRepository = ScreenshotRepository(context, database),
+    override val activeProvider: OcrEngineProvider = MlKitOcrProvider()
 ) : OcrRepository {
 
     private val ocrDao = database.ocrDao()
     private val screenshotDao = database.screenshotDao()
 
-    // Bounded concurrency semaphore: max 2 simultaneous OCR jobs
+    // Bounded concurrency semaphore: max 2 simultaneous OCR jobs to maintain thermal & CPU balance
     private val ocrSemaphore = Semaphore(2)
     private var activeBatchJob: Job? = null
     private val isCancelled = AtomicBoolean(false)
 
-    override suspend fun recognizeText(uri: Uri): OcrResult = withContext(Dispatchers.IO) {
+    private val _batchProgress = MutableStateFlow(OcrBatchProgress.IDLE)
+    override val batchProgress: StateFlow<OcrBatchProgress> = _batchProgress.asStateFlow()
+
+    override suspend fun recognizeText(uri: Uri, language: OcrLanguage?): OcrResult = withContext(Dispatchers.IO) {
+        val targetLanguage = language ?: settingsRepository.settings.value.ocrLanguage
+        val recognizer = activeProvider.createRecognizer(targetLanguage)
+        try {
+            recognizeWithRecognizer(uri, recognizer)
+        } finally {
+            recognizer.close()
+        }
+    }
+
+    private suspend fun recognizeWithRecognizer(
+        uri: Uri,
+        recognizer: TextRecognizer
+    ): OcrResult = withContext(Dispatchers.IO) {
         val uriString = uri.toString()
         val processedTime = System.currentTimeMillis()
 
@@ -58,7 +83,6 @@ class OcrRepositoryImpl(
         )
 
         ocrSemaphore.withPermit {
-            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
             try {
                 val inputImage = InputImage.fromFilePath(context, uri)
                 val visionText: Text = suspendCancellableCoroutine { continuation ->
@@ -165,48 +189,183 @@ class OcrRepositoryImpl(
                     success = false,
                     errorMessage = e.message
                 )
-            } finally {
-                recognizer.close()
             }
         }
     }
 
-    override suspend fun recognizeTextForScreenshot(screenshot: ScreenshotEntity): OcrResult {
-        return recognizeText(Uri.parse(screenshot.uri))
+    override suspend fun recognizeTextForScreenshot(
+        screenshot: ScreenshotEntity,
+        language: OcrLanguage?
+    ): OcrResult {
+        return recognizeText(Uri.parse(screenshot.uri), language)
     }
 
-    override suspend fun recognizePendingScreenshots(): OcrBatchResult = withContext(Dispatchers.IO) {
+    override suspend fun recognizePendingScreenshots(language: OcrLanguage?): OcrBatchResult = withContext(Dispatchers.IO) {
+        val targetLanguage = language ?: settingsRepository.settings.value.ocrLanguage
+        val recognizer = activeProvider.createRecognizer(targetLanguage)
         isCancelled.set(false)
-        val unprocessed = screenshotDao.getUnprocessedScreenshots()
-        var successCount = 0
-        var failCount = 0
-        var processedCount = 0
 
-        for (screenshot in unprocessed) {
-            if (isCancelled.get()) break
-            try {
-                val result = recognizeText(Uri.parse(screenshot.uri))
-                processedCount++
-                if (result.success) {
-                    successCount++
-                } else {
+        try {
+            val unprocessed = screenshotDao.getUnprocessedScreenshots()
+            var successCount = 0
+            var failCount = 0
+            var processedCount = 0
+
+            for (screenshot in unprocessed) {
+                if (isCancelled.get()) break
+                try {
+                    val result = recognizeWithRecognizer(Uri.parse(screenshot.uri), recognizer)
+                    processedCount++
+                    if (result.success) {
+                        successCount++
+                    } else {
+                        failCount++
+                    }
+                } catch (e: CancellationException) {
+                    break
+                } catch (e: Exception) {
                     failCount++
                 }
-            } catch (e: Exception) {
-                failCount++
+            }
+
+            OcrBatchResult(
+                processedCount = processedCount,
+                successCount = successCount,
+                failureCount = failCount
+            )
+        } finally {
+            recognizer.close()
+        }
+    }
+
+    /**
+     * Process & Index All Images:
+     * 1. Discovers all images from device storage via ScreenshotRepository.
+     * 2. Reuses a single loaded OCR model throughout the entire batch for high throughput and efficiency.
+     * 3. Handles per-image errors gracefully without failing the batch.
+     * 4. Updates real-time reactive progress (processed, indexed, skipped, failed).
+     */
+    override suspend fun processAndIndexAllImages(
+        forceReindex: Boolean,
+        language: OcrLanguage?
+    ): OcrBatchProgress = withContext(Dispatchers.IO) {
+        val targetLanguage = language ?: settingsRepository.settings.value.ocrLanguage
+        isCancelled.set(false)
+
+        // 1. Sync all images from MediaStore into database
+        screenshotRepository.syncAllScreenshots()
+
+        val allScreenshots = screenshotDao.getAllScreenshots()
+        val toProcess = if (forceReindex) {
+            allScreenshots
+        } else {
+            allScreenshots.filter { item ->
+                item.screenshot.ocrStatus != "COMPLETED" && item.screenshot.ocrStatus != "NO_TEXT"
             }
         }
 
-        OcrBatchResult(
-            processedCount = processedCount,
-            successCount = successCount,
-            failureCount = failCount
+        val totalToProcess = toProcess.size
+        val skippedCount = allScreenshots.size - totalToProcess
+
+        if (totalToProcess == 0) {
+            val completedProgress = OcrBatchProgress(
+                isRunning = false,
+                total = allScreenshots.size,
+                current = allScreenshots.size,
+                currentFileName = "No unprocessed images",
+                currentLanguage = targetLanguage.displayName,
+                indexedCount = 0,
+                skippedCount = skippedCount,
+                failedCount = 0,
+                lastError = null,
+                isCompleted = true,
+                isCancelled = false
+            )
+            _batchProgress.value = completedProgress
+            return@withContext completedProgress
+        }
+
+        _batchProgress.value = OcrBatchProgress(
+            isRunning = true,
+            total = totalToProcess,
+            current = 0,
+            currentFileName = "",
+            currentLanguage = targetLanguage.displayName,
+            indexedCount = 0,
+            skippedCount = skippedCount,
+            failedCount = 0,
+            lastError = null,
+            isCompleted = false,
+            isCancelled = false
         )
+
+        // Reuse single model for the entire batch
+        val recognizer = activeProvider.createRecognizer(targetLanguage)
+        var indexed = 0
+        var failed = 0
+        var lastErr: String? = null
+
+        try {
+            for ((index, item) in toProcess.withIndex()) {
+                if (isCancelled.get()) {
+                    break
+                }
+
+                val currentIdx = index + 1
+                val screenshot = item.screenshot
+                val uri = Uri.parse(screenshot.uri)
+
+                _batchProgress.value = _batchProgress.value.copy(
+                    current = currentIdx,
+                    currentFileName = screenshot.displayName
+                )
+
+                try {
+                    val result = recognizeWithRecognizer(uri, recognizer)
+                    if (result.success) {
+                        indexed++
+                    } else {
+                        failed++
+                        lastErr = "Failed ${screenshot.displayName}: ${result.errorMessage ?: "Unknown error"}"
+                    }
+                } catch (e: CancellationException) {
+                    break
+                } catch (e: Exception) {
+                    failed++
+                    lastErr = "Failed ${screenshot.displayName}: ${e.message}"
+                    Log.e(TAG, "Batch error processing ${screenshot.displayName}: ${e.message}", e)
+                }
+
+                _batchProgress.value = _batchProgress.value.copy(
+                    indexedCount = indexed,
+                    failedCount = failed,
+                    lastError = lastErr
+                )
+            }
+        } finally {
+            recognizer.close()
+            val wasCancelled = isCancelled.get()
+            val finalProgress = _batchProgress.value.copy(
+                isRunning = false,
+                isCompleted = !wasCancelled,
+                isCancelled = wasCancelled,
+                indexedCount = indexed,
+                failedCount = failed,
+                lastError = lastErr
+            )
+            _batchProgress.value = finalProgress
+        }
+
+        _batchProgress.value
     }
 
     override suspend fun cancelPendingOcr() {
         isCancelled.set(true)
         activeBatchJob?.cancel()
+        _batchProgress.value = _batchProgress.value.copy(
+            isRunning = false,
+            isCancelled = true
+        )
     }
 
     companion object {

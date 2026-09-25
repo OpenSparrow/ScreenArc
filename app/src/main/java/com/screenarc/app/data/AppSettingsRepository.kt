@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+import com.screenarc.app.ocr.OcrLanguage
+
 enum class OcrProcessingMode {
     MANUAL_ONLY,
     ASK_BEFORE_PROCESSING,
@@ -21,7 +23,8 @@ data class AppSettings(
     val dynamicPaletteEnabled: Boolean = true,
     val autoExpandOnCapture: Boolean = true,
     val playSoundOnDrop: Boolean = false,
-    val ocrProcessingMode: OcrProcessingMode = OcrProcessingMode.ASK_BEFORE_PROCESSING
+    val ocrProcessingMode: OcrProcessingMode = OcrProcessingMode.ASK_BEFORE_PROCESSING,
+    val ocrLanguage: OcrLanguage = OcrLanguage.DEVANAGARI
 )
 
 class AppSettingsRepository(context: Context) {
@@ -38,6 +41,9 @@ class AppSettingsRepository(context: Context) {
             OcrProcessingMode.ASK_BEFORE_PROCESSING
         }
 
+        val langId = prefs.getString("ocr_language", OcrLanguage.DEVANAGARI.id)
+        val ocrLang = OcrLanguage.fromId(langId, OcrLanguage.DEVANAGARI)
+
         return AppSettings(
             isServiceEnabled = prefs.getBoolean("is_service_enabled", false),
             bubbleSizeDp = prefs.getInt("bubble_size_dp", 64),
@@ -47,7 +53,8 @@ class AppSettingsRepository(context: Context) {
             dynamicPaletteEnabled = prefs.getBoolean("dynamic_palette_enabled", true),
             autoExpandOnCapture = prefs.getBoolean("auto_expand_capture", true),
             playSoundOnDrop = prefs.getBoolean("play_sound_drop", false),
-            ocrProcessingMode = ocrMode
+            ocrProcessingMode = ocrMode,
+            ocrLanguage = ocrLang
         )
     }
 
@@ -63,6 +70,7 @@ class AppSettingsRepository(context: Context) {
             putBoolean("auto_expand_capture", updated.autoExpandOnCapture)
             putBoolean("play_sound_drop", updated.playSoundOnDrop)
             putString("ocr_processing_mode", updated.ocrProcessingMode.name)
+            putString("ocr_language", updated.ocrLanguage.id)
         }.apply()
         _settings.value = updated
     }

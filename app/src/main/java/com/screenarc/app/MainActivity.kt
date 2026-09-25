@@ -199,7 +199,8 @@ class MainActivity : ComponentActivity() {
                                     categoryRepo = categoryRepository
                                 )
                                 NavigationTab.SETTINGS -> SettingsScreen(
-                                    settingsRepo = settingsRepository
+                                    settingsRepo = settingsRepository,
+                                    searchViewModel = searchViewModel
                                 )
                             }
                         }

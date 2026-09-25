@@ -49,6 +49,9 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -77,11 +80,13 @@ dependencies {
 
     // ML Kit On-Device Text Recognition
     implementation(libs.mlkit.text.recognition)
+    implementation(libs.mlkit.text.recognition.devanagari)
 
     // WorkManager for background OCR tasks
     implementation(libs.androidx.work.runtime.ktx)
 
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303")
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

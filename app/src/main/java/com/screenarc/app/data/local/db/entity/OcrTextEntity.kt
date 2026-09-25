@@ -4,6 +4,9 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
+import java.text.Normalizer
+import java.util.Locale
+
 @Entity(
     tableName = "ocr_texts",
     indices = [
@@ -25,10 +28,17 @@ data class OcrTextEntity(
     val blocksJson: String? = null
 ) {
     companion object {
+        /**
+         * Robust Unicode normalization ensuring compatibility across Indian scripts (Devanagari, Tamil,
+         * Telugu, Kannada, Malayalam, Bengali) and Latin text.
+         * Applies Unicode NFKC (Compatibility Decomposition followed by Canonical Composition),
+         * converts case safely, and strips redundant whitespaces and linebreaks.
+         */
         fun normalizeText(raw: String): String {
             if (raw.isBlank()) return ""
-            return raw
-                .lowercase()
+            val nfkcNormalized = Normalizer.normalize(raw, Normalizer.Form.NFKC)
+            return nfkcNormalized
+                .lowercase(Locale.ROOT)
                 .replace(Regex("[\\r\\n]+"), " ")
                 .replace(Regex("\\s{2,}"), " ")
                 .trim()

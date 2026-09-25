@@ -171,9 +171,9 @@ object MediaStoreOrganizer {
 
 
     /**
-     * Load recent screenshots from MediaStore
+     * Load screenshots from MediaStore
      */
-    suspend fun getRecentScreenshots(context: Context, limit: Int = 20): List<ScreenshotItem> = withContext(Dispatchers.IO) {
+    suspend fun getRecentScreenshots(context: Context, limit: Int = 100): List<ScreenshotItem> = withContext(Dispatchers.IO) {
         val items = mutableListOf<ScreenshotItem>()
         val projection = arrayOf(
             MediaStore.Images.Media._ID,
@@ -218,7 +218,7 @@ object MediaStoreOrganizer {
                 }
 
                 var count = 0
-                while (cursor.moveToNext() && count < limit) {
+                while (cursor.moveToNext() && (limit <= 0 || count < limit)) {
                     val id = cursor.getLong(idColumn)
                     val name = cursor.getString(nameColumn) ?: "Screenshot"
                     val dateAdded = cursor.getLong(dateColumn)
@@ -246,6 +246,12 @@ object MediaStoreOrganizer {
         }
         items
     }
+
+    /**
+     * Load all screenshots from MediaStore without limit for bulk processing
+     */
+    suspend fun getAllScreenshots(context: Context): List<ScreenshotItem> = getRecentScreenshots(context, limit = 0)
+
 
     /**
      * Load full bitmap or thumbnail for a screenshot uri

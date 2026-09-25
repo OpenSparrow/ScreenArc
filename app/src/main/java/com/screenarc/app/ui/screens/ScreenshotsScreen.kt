@@ -200,6 +200,8 @@ fun ScreenshotsScreen(
             }
         }
 
+    val batchProgress by searchViewModel.batchProgress.collectAsState()
+
         // Search options bar: OCR search toggle, batch OCR triggers, search count
         Row(
             modifier = Modifier
@@ -215,8 +217,21 @@ fun ScreenshotsScreen(
             )
 
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Process & Index All Images Action
+                if (!uiState.isOcrRunning && !batchProgress.isRunning) {
+                    androidx.compose.material3.FilledTonalButton(
+                        onClick = { searchViewModel.processAndIndexAllImages() },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Process All Images", fontSize = 11.sp)
+                    }
+                }
+
                 // Run OCR for current search set
-                if (results.isNotEmpty() && !uiState.isOcrRunning) {
+                if (results.isNotEmpty() && !uiState.isOcrRunning && !batchProgress.isRunning) {
                     OutlinedButton(
                         onClick = { searchViewModel.runOcrForSearchResults() },
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
@@ -224,11 +239,11 @@ fun ScreenshotsScreen(
                     ) {
                         Icon(Icons.Default.FindInPage, contentDescription = null, modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("OCR Results", fontSize = 11.sp)
+                        Text("OCR Filtered", fontSize = 11.sp)
                     }
                 }
 
-                if (uiState.isOcrRunning) {
+                if (uiState.isOcrRunning || batchProgress.isRunning) {
                     Button(
                         onClick = { searchViewModel.cancelOcr() },
                         colors = androidx.compose.material3.ButtonDefaults.buttonColors(
@@ -245,8 +260,88 @@ fun ScreenshotsScreen(
             }
         }
 
-        // OCR progress indicator bar
-        if (uiState.isOcrRunning) {
+        // Detailed Batch Progress Card
+        if (batchProgress.isRunning) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Processing images...",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "${batchProgress.current} / ${batchProgress.total}",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    androidx.compose.material3.LinearProgressIndicator(
+                        progress = { batchProgress.progressFraction },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    if (batchProgress.currentFileName.isNotEmpty()) {
+                        Text(
+                            text = "Current: ${batchProgress.currentFileName}",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            maxLines = 1
+                        )
+                    }
+
+                    Text(
+                        text = "OCR: ${batchProgress.currentLanguage}",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Indexed: ${batchProgress.indexedCount}  |  Skipped: ${batchProgress.skippedCount}  |  Failed: ${batchProgress.failedCount}",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Button(
+                            onClick = { searchViewModel.cancelOcr() },
+                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error
+                            ),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Cancel, contentDescription = null, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Cancel", fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        } else if (uiState.isOcrRunning) {
+            // Single image OCR progress indicator bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

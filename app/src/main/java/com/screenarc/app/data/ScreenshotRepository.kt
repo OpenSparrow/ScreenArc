@@ -41,7 +41,7 @@ class ScreenshotRepository(
      */
     fun searchScreenshots(query: ScreenshotSearchQuery): Flow<List<ScreenshotWithOcrAndCategory>> {
         val cleanText = query.text.trim()
-        val normalized = cleanText.lowercase()
+        val normalized = com.screenarc.app.data.local.db.entity.OcrTextEntity.normalizeText(cleanText)
         return screenshotDao.searchScreenshotsFlow(
             textQuery = cleanText,
             normalizedQuery = normalized,
@@ -76,6 +76,31 @@ class ScreenshotRepository(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error syncing MediaStore screenshots: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Discover and synchronize all available screenshots from device storage into Room database.
+     */
+    suspend fun syncAllScreenshots() = withContext(Dispatchers.IO) {
+        try {
+            val mediaStoreItems = MediaStoreOrganizer.getAllScreenshots(context)
+            val entities = mediaStoreItems.map { item ->
+                ScreenshotEntity(
+                    id = item.id,
+                    uri = item.uri.toString(),
+                    displayName = item.displayName,
+                    dateAdded = item.dateAdded,
+                    size = item.size,
+                    relativePath = item.relativePath,
+                    mimeType = item.mimeType
+                )
+            }
+            if (entities.isNotEmpty()) {
+                screenshotDao.insertAll(entities)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error syncing all MediaStore screenshots: ${e.message}", e)
         }
     }
 
