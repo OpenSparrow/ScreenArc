@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -69,5 +70,19 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.kotlinx.coroutines.android)
 
+    // Room Database
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
+
+    // ML Kit On-Device Text Recognition
+    implementation(libs.mlkit.text.recognition)
+
+    // WorkManager for background OCR tasks
+    implementation(libs.androidx.work.runtime.ktx)
+
+    testImplementation(libs.junit)
+
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
+

@@ -1,5 +1,6 @@
 package com.screenarc.app.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -251,5 +252,82 @@ fun SettingsScreen(
                 }
             }
         }
+
+        // On-Device OCR Settings Card (Section 7)
+        item {
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                )
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        text = "On-Device OCR & Text Indexing",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = "Configure how Google ML Kit recognizes text from your screenshots locally on-device without network access.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = "OCR Processing Mode",
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    val modes = listOf(
+                        com.screenarc.app.data.OcrProcessingMode.ASK_BEFORE_PROCESSING to "Ask before processing (Default)",
+                        com.screenarc.app.data.OcrProcessingMode.MANUAL_ONLY to "Manual only",
+                        com.screenarc.app.data.OcrProcessingMode.AUTOMATIC to "Process new screenshots automatically"
+                    )
+
+                    modes.forEach { (mode, title) ->
+                        val isSelected = settings.ocrProcessingMode == mode
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clickable {
+                                    settingsRepo.updateSettings { it.copy(ocrProcessingMode = mode) }
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                androidx.compose.material3.RadioButton(
+                                    selected = isSelected,
+                                    onClick = {
+                                        settingsRepo.updateSettings { it.copy(ocrProcessingMode = mode) }
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = title,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    ),
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
+

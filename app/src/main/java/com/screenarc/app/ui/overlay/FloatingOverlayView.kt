@@ -1,10 +1,8 @@
 package com.screenarc.app.ui.overlay
 
 import android.content.Context
-import android.os.Build
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
+import android.content.Intent
+import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -22,7 +20,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -31,6 +28,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -44,17 +42,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -70,26 +67,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.screenarc.app.MainActivity
 import com.screenarc.app.data.AppSettings
-import com.screenarc.app.model.Category
+import com.screenarc.app.model.CategoryUiModel
 import com.screenarc.app.model.ScreenshotItem
 import com.screenarc.app.ui.theme.ScreenArcTheme
 import kotlinx.coroutines.delay
@@ -103,28 +100,29 @@ import kotlin.math.sqrt
 @Composable
 fun FloatingOverlayView(
     screenshot: ScreenshotItem,
-    categories: List<Category>,
+    categories: List<CategoryUiModel>,
     settings: AppSettings,
-    onMoveToCategory: (Category) -> Unit,
+    onMoveToCategory: (CategoryUiModel) -> Unit,
     onDismiss: () -> Unit,
+    onOpenSearch: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
 
     // UI state
     var isExpanded by remember { mutableStateOf(settings.autoExpandOnCapture) }
     var isDismissing by remember { mutableStateOf(false) }
-    var successCategory by remember { mutableStateOf<Category?>(null) }
-    var hoveredCategory by remember { mutableStateOf<Category?>(null) }
+    var successCategory by remember { mutableStateOf<CategoryUiModel?>(null) }
+    var hoveredCategory by remember { mutableStateOf<CategoryUiModel?>(null) }
 
     // Drag offset
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
     var isDragging by remember { mutableStateOf(false) }
 
-    // Smooth return to center animation when drag is released outside
     val animatedDragX by animateFloatAsState(
         targetValue = dragOffsetX,
         animationSpec = spring(
@@ -147,7 +145,10 @@ fun FloatingOverlayView(
     val bubbleSize = settings.bubbleSizeDp.dp
     val arcRadius = settings.arcRadiusDp.dp
     val arcRadiusPx = with(density) { arcRadius.toPx() }
-    val hitThresholdPx = with(density) { 54.dp.toPx() }
+    val hitThresholdPx = with(density) { 56.dp.toPx() }
+
+    // Use adaptive tray if there are many categories (> 8)
+    val useAdaptiveTray = categories.size > 8
 
     // Auto-dismiss countdown
     var remainingSeconds by remember { mutableStateOf(settings.autoDismissSeconds) }
@@ -166,37 +167,13 @@ fun FloatingOverlayView(
             remainingSeconds = (((totalMillis - elapsed) / 1000L) + 1).toInt()
         }
 
-        // Timeout reached -> smooth dismiss
         isDismissing = true
-        delay(300)
+        delay(250)
         onDismiss()
     }
 
-    fun triggerHaptic() {
-        if (!settings.hapticFeedbackEnabled) return
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-                vibratorManager?.defaultVibrator?.vibrate(
-                    VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    vibrator?.vibrate(VibrationEffect.createOneShot(20, VibrationEffect.DEFAULT_AMPLITUDE))
-                } else {
-                    @Suppress("DEPRECATION")
-                    vibrator?.vibrate(20)
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    // Check hit test for categories during drag
-    fun checkHoverCategory(currentDragOffset: Offset): Category? {
+    // Check hit test for categories during drag in radial mode
+    fun checkRadialHoverCategory(currentDragOffset: Offset): CategoryUiModel? {
         val total = categories.size
         val angleStep = if (total > 1) (2 * PI / total).toFloat() else 0f
         val startAngle = -PI.toFloat() / 2f
@@ -220,21 +197,20 @@ fun FloatingOverlayView(
     // Exit animation wrapper
     val exitScale by animateFloatAsState(
         targetValue = if (isDismissing) 0.0f else 1.0f,
-        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        animationSpec = tween(280, easing = FastOutSlowInEasing),
         label = "ExitScale"
     )
 
     val exitAlpha by animateFloatAsState(
         targetValue = if (isDismissing) 0.0f else 1.0f,
-        animationSpec = tween(250, easing = LinearEasing),
+        animationSpec = tween(230, easing = LinearEasing),
         label = "ExitAlpha"
     )
 
-    // Infinite breathing / pulse animation for initial state
     val infiniteTransition = rememberInfiniteTransition(label = "PulseTransition")
     val pulseGlow by infiniteTransition.animateFloat(
-        initialValue = 0.95f,
-        targetValue = 1.06f,
+        initialValue = 0.96f,
+        targetValue = 1.05f,
         animationSpec = infiniteRepeatable(
             animation = tween(1200, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
@@ -243,7 +219,7 @@ fun FloatingOverlayView(
     )
 
     ScreenArcTheme {
-        Box(
+        BoxWithConstraints(
             modifier = modifier
                 .fillMaxSize()
                 .scale(exitScale)
@@ -254,7 +230,10 @@ fun FloatingOverlayView(
                 },
             contentAlignment = Alignment.Center
         ) {
-            // Backdrop tap to dismiss overlay
+            val screenWidth = maxWidth
+            val screenHeight = maxHeight
+
+            // Backdrop tap to dismiss
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -265,39 +244,74 @@ fun FloatingOverlayView(
                         if (!isDismissing) {
                             coroutineScope.launch {
                                 isDismissing = true
-                                delay(250)
+                                delay(220)
                                 onDismiss()
                             }
                         }
                     }
             )
 
-            // Radial Arc Menu
-            ArcMenuLayout(
-                categories = categories,
-                isExpanded = isExpanded,
-                radiusDp = arcRadius,
-                dragOffsetPx = Offset(animatedDragX, animatedDragY),
-                paletteColors = screenshot.paletteColors,
-                dynamicPaletteEnabled = settings.dynamicPaletteEnabled,
-                hoveredCategoryId = hoveredCategory?.id,
-                onCategoryClick = { category ->
-                    if (isDismissing) return@ArcMenuLayout
-                    successCategory = category
-                    triggerHaptic()
-                    coroutineScope.launch {
-                        delay(350)
-                        onMoveToCategory(category)
-                        isDismissing = true
-                        delay(250)
-                        onDismiss()
+            // Category targets layout: Radial arc if <= 8 categories, otherwise adaptive layout
+            if (!useAdaptiveTray) {
+                ArcMenuLayout(
+                    categories = categories,
+                    isExpanded = isExpanded,
+                    radiusDp = arcRadius,
+                    dragOffsetPx = Offset(animatedDragX, animatedDragY),
+                    paletteColors = screenshot.paletteColors,
+                    dynamicPaletteEnabled = settings.dynamicPaletteEnabled,
+                    hoveredCategoryId = hoveredCategory?.id,
+                    onCategoryClick = { category ->
+                        if (isDismissing) return@ArcMenuLayout
+                        successCategory = category
+                        triggerHapticFeedback(context, HapticType.DROP)
+                        coroutineScope.launch {
+                            delay(350)
+                            onMoveToCategory(category)
+                            isDismissing = true
+                            delay(220)
+                            onDismiss()
+                        }
                     }
+                )
+            } else {
+                // Adaptive bottom category drop tray when many categories exist
+                AnimatedVisibility(
+                    visible = isExpanded,
+                    enter = fadeIn() + scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)),
+                    exit = fadeOut() + scaleOut(),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 72.dp)
+                ) {
+                    AdaptiveCategoryDropTargets(
+                        categories = categories,
+                        availableWidth = screenWidth - 32.dp,
+                        availableHeight = 120.dp,
+                        isDragging = isDragging,
+                        highlightedCategoryId = hoveredCategory?.id,
+                        onCategoryDrop = { category ->
+                            if (isDismissing) return@AdaptiveCategoryDropTargets
+                            successCategory = category
+                            triggerHapticFeedback(context, HapticType.DROP)
+                            coroutineScope.launch {
+                                delay(350)
+                                onMoveToCategory(category)
+                                isDismissing = true
+                                delay(220)
+                                onDismiss()
+                            }
+                        },
+                        onCategoryFocused = { category ->
+                            hoveredCategory = category
+                        }
+                    )
                 }
-            )
+            }
 
-            // Center Bubble / Thumbnail & Drag Source
+            // Central Bubble & Drag Item
             val bubbleElevation by animateDpAsState(
-                targetValue = if (isDragging) 12.dp else 6.dp,
+                targetValue = if (isDragging) 14.dp else 6.dp,
                 animationSpec = tween(150),
                 label = "BubbleElevation"
             )
@@ -328,18 +342,22 @@ fun FloatingOverlayView(
                             onDragStart = {
                                 isDragging = true
                                 isExpanded = true
-                                triggerHaptic()
+                                triggerHapticFeedback(context, HapticType.ENTER)
                             },
                             onDrag = { change, dragAmount ->
                                 change.consume()
                                 dragOffsetX += dragAmount.x
                                 dragOffsetY += dragAmount.y
 
-                                val newHovered = checkHoverCategory(Offset(dragOffsetX, dragOffsetY))
-                                if (newHovered != hoveredCategory) {
-                                    hoveredCategory = newHovered
-                                    if (newHovered != null) {
-                                        triggerHaptic()
+                                if (!useAdaptiveTray) {
+                                    val newHovered = checkRadialHoverCategory(Offset(dragOffsetX, dragOffsetY))
+                                    if (newHovered != hoveredCategory) {
+                                        if (newHovered != null) {
+                                            triggerHapticFeedback(context, HapticType.ENTER)
+                                        } else if (hoveredCategory != null) {
+                                            triggerHapticFeedback(context, HapticType.LEAVE)
+                                        }
+                                        hoveredCategory = newHovered
                                     }
                                 }
                             },
@@ -348,16 +366,15 @@ fun FloatingOverlayView(
                                 val target = hoveredCategory
                                 if (target != null) {
                                     successCategory = target
-                                    triggerHaptic()
+                                    triggerHapticFeedback(context, HapticType.DROP)
                                     coroutineScope.launch {
                                         delay(400)
                                         onMoveToCategory(target)
                                         isDismissing = true
-                                        delay(250)
+                                        delay(220)
                                         onDismiss()
                                     }
                                 } else {
-                                    // Reset to center with spring
                                     dragOffsetX = 0f
                                     dragOffsetY = 0f
                                     hoveredCategory = null
@@ -373,25 +390,28 @@ fun FloatingOverlayView(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                // Timer Progress Circle (when not dragging)
+                // Auto-dismiss circular timer ring
                 if (!isDragging && successCategory == null) {
                     CircularProgressIndicator(
                         progress = { timerProgress },
                         modifier = Modifier.size(bubbleSize + 16.dp),
                         color = if (settings.dynamicPaletteEnabled) screenshot.paletteColors.vibrant else MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                         strokeWidth = 3.dp
                     )
                 }
 
-                // Main Floating Thumbnail Surface
+                // Main Thumbnail Bubble Surface
                 Surface(
                     modifier = Modifier
                         .size(bubbleSize)
                         .clip(CircleShape)
                         .clickable {
                             isExpanded = !isExpanded
-                            triggerHaptic()
+                            triggerHapticFeedback(context, HapticType.ENTER)
+                        }
+                        .semantics {
+                            contentDescription = "Floating screenshot thumbnail bubble"
                         },
                     shape = CircleShape,
                     shadowElevation = bubbleElevation,
@@ -430,8 +450,8 @@ fun FloatingOverlayView(
                             }
                         }
 
-                        // Success Overlay with Checkmark
-                        androidx.compose.animation.AnimatedVisibility(
+                        // Success checkmark overlay
+                        AnimatedVisibility(
                             visible = successCategory != null,
                             enter = scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn(),
                             exit = scaleOut() + fadeOut()
@@ -444,19 +464,19 @@ fun FloatingOverlayView(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.CheckCircle,
-                                    contentDescription = "Success",
+                                    contentDescription = "Categorized successfully",
                                     tint = Color.White,
                                     modifier = Modifier.size(36.dp)
                                 )
                             }
                         }
 
-                        // Drag hint overlay icon if expanded and not dragging
+                        // Drag Handle hint
                         if (isExpanded && !isDragging && successCategory == null) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .background(Color.Black.copy(alpha = 0.25f)),
+                                    .background(Color.Black.copy(alpha = 0.22f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -470,7 +490,7 @@ fun FloatingOverlayView(
                     }
                 }
 
-                // Small quick dismiss 'X' button
+                // Quick dismiss 'X' button
                 if (isExpanded && !isDragging && successCategory == null) {
                     Surface(
                         modifier = Modifier
@@ -480,7 +500,7 @@ fun FloatingOverlayView(
                             .clickable {
                                 coroutineScope.launch {
                                     isDismissing = true
-                                    delay(200)
+                                    delay(180)
                                     onDismiss()
                                 }
                             },
@@ -500,13 +520,14 @@ fun FloatingOverlayView(
                 }
             }
 
-            // Material 3 Toast / SnackBar Banner at Top or Bottom during drag/success
+            // Bottom Actions & Quick Search Action Pill
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 32.dp),
+                    .padding(bottom = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Success banner
                 AnimatedVisibility(
                     visible = successCategory != null,
                     enter = fadeIn() + scaleIn(),
@@ -540,34 +561,70 @@ fun FloatingOverlayView(
                     }
                 }
 
-                // Drag instruction chip
+                // Drag instruction & Open Search shortcut (Section 4 requirement: Open Search action in overlay)
                 AnimatedVisibility(
                     visible = isExpanded && !isDragging && successCategory == null,
                     enter = fadeIn(),
                     exit = fadeOut()
                 ) {
-                    Surface(
-                        modifier = Modifier.padding(top = 8.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
-                        shadowElevation = 4.dp
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(top = 8.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
+                            shadowElevation = 4.dp
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.TouchApp,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Drag bubble or tap chip to categorize",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.TouchApp,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Drag or tap category",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        // Open Search Action
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shadowElevation = 4.dp,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable {
+                                    onOpenSearch()
+                                    onDismiss()
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search & OCR in App",
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Search & OCR",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
                         }
                     }
                 }

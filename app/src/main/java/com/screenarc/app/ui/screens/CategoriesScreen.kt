@@ -22,21 +22,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.FormatQuote
-import androidx.compose.material.icons.filled.Mood
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Work
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FloatingActionButton
@@ -54,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,9 +53,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.screenarc.app.data.CategoryRepository
-import com.screenarc.app.model.Category
+import com.screenarc.app.model.CategoryUiModel
+import kotlinx.coroutines.launch
 
 private val AVAILABLE_COLORS = listOf(
     0xFF1976D2, // Blue
@@ -90,10 +82,11 @@ fun CategoriesScreen(
     modifier: Modifier = Modifier
 ) {
     val categories by categoryRepo.categories.collectAsState()
+    val scope = rememberCoroutineScope()
 
     var showAddDialog by remember { mutableStateOf(false) }
-    var categoryToEdit by remember { mutableStateOf<Category?>(null) }
-    var categoryToDelete by remember { mutableStateOf<Category?>(null) }
+    var categoryToEdit by remember { mutableStateOf<CategoryUiModel?>(null) }
+    var categoryToDelete by remember { mutableStateOf<CategoryUiModel?>(null) }
     var showResetConfirm by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -128,7 +121,7 @@ fun CategoriesScreen(
                             style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
                         )
                         Text(
-                            text = "Categories are mapped to Pictures/Screenshots/<Folder>/",
+                            text = "Categories are stored in Room and synced with overlay in real time",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -215,7 +208,9 @@ fun CategoriesScreen(
             initialCategory = null,
             onDismiss = { showAddDialog = false },
             onSave = { name, folder, icon, color ->
-                categoryRepo.addCategory(name, folder, icon, color)
+                scope.launch {
+                    categoryRepo.addCategory(name, folder, icon, color)
+                }
                 showAddDialog = false
             }
         )
@@ -227,14 +222,16 @@ fun CategoriesScreen(
             initialCategory = cat,
             onDismiss = { categoryToEdit = null },
             onSave = { name, folder, icon, color ->
-                categoryRepo.updateCategory(
-                    cat.copy(
-                        name = name,
-                        subfolderName = folder,
-                        iconName = icon,
-                        colorHex = color
+                scope.launch {
+                    categoryRepo.updateCategory(
+                        cat.copy(
+                            name = name,
+                            subfolderName = folder,
+                            iconName = icon,
+                            colorHex = color
+                        )
                     )
-                )
+                }
                 categoryToEdit = null
             }
         )
@@ -249,7 +246,9 @@ fun CategoriesScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        categoryRepo.deleteCategory(cat.id)
+                        scope.launch {
+                            categoryRepo.deleteCategory(cat.id)
+                        }
                         categoryToDelete = null
                     }
                 ) {
@@ -273,7 +272,9 @@ fun CategoriesScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        categoryRepo.resetToDefaults()
+                        scope.launch {
+                            categoryRepo.resetToDefaults()
+                        }
                         showResetConfirm = false
                     }
                 ) {
@@ -291,7 +292,7 @@ fun CategoriesScreen(
 
 @Composable
 fun CategoryEditorDialog(
-    initialCategory: Category?,
+    initialCategory: CategoryUiModel?,
     onDismiss: () -> Unit,
     onSave: (name: String, folder: String, icon: String, color: Long) -> Unit
 ) {
@@ -335,7 +336,7 @@ fun CategoryEditorDialog(
 
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(AVAILABLE_ICONS) { iconName ->
-                        val dummy = Category("id", "temp", "temp", iconName = iconName)
+                        val dummy = CategoryUiModel(0, "temp", "temp", iconName = iconName)
                         val isSelected = selectedIcon == iconName
                         Surface(
                             shape = CircleShape,

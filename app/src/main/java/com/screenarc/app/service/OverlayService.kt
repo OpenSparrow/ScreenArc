@@ -13,7 +13,6 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
-import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.ui.platform.ComposeView
@@ -35,8 +34,9 @@ import com.screenarc.app.ScreenArcApplication
 import com.screenarc.app.data.AppSettingsRepository
 import com.screenarc.app.data.CategoryRepository
 import com.screenarc.app.data.OrganizedHistoryRepository
-import com.screenarc.app.model.Category
-import com.screenarc.app.model.OrganizedRecord
+import com.screenarc.app.data.ScreenshotRepository
+import com.screenarc.app.model.CategoryUiModel
+import com.screenarc.app.model.OverlayEvent
 import com.screenarc.app.model.ScreenshotItem
 import com.screenarc.app.palette.PaletteExtractor
 import com.screenarc.app.storage.MediaStoreOrganizer
@@ -45,8 +45,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class OverlayService : Service() {
 
@@ -58,6 +58,7 @@ class OverlayService : Service() {
     private lateinit var categoryRepository: CategoryRepository
     private lateinit var settingsRepository: AppSettingsRepository
     private lateinit var historyRepository: OrganizedHistoryRepository
+    private lateinit var screenshotRepository: ScreenshotRepository
 
     private var currentOverlayScreenshot: ScreenshotItem? = null
     private val overlayLifecycleOwner = OverlayServiceLifecycleOwner()
@@ -70,6 +71,7 @@ class OverlayService : Service() {
         categoryRepository = CategoryRepository(this)
         settingsRepository = AppSettingsRepository(this)
         historyRepository = OrganizedHistoryRepository(this)
+        screenshotRepository = ScreenshotRepository(this)
 
         overlayLifecycleOwner.performRestore(null)
         overlayLifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
@@ -78,6 +80,42 @@ class OverlayService : Service() {
 
         startForeground(NOTIFICATION_ID, buildForegroundNotification())
         registerScreenshotObserver()
+        observeCategoriesAndEvents()
+    }
+
+    private fun observeCategoriesAndEvents() {
+        // Collect Room Flow of Categories reactively: re-render overlay if visible
+        serviceScope.launch {
+            categoryRepository.categoriesFlow.collectLatest { updatedCategories ->
+                currentOverlayScreenshot?.let { item ->
+                    showFloatingOverlay(item)
+                }
+            }
+        }
+
+        // Collect events from OverlayEventBus
+        serviceScope.launch {
+            OverlayEventBus.events.collectLatest { event ->
+                when (event) {
+                    is OverlayEvent.CategoriesChanged -> {
+                        currentOverlayScreenshot?.let { item ->
+                            showFloatingOverlay(item)
+                        }
+                    }
+                    is OverlayEvent.RefreshRequested -> {
+                        currentOverlayScreenshot?.let { item ->
+                            showFloatingOverlay(item)
+                        }
+                    }
+                    is OverlayEvent.OverlayClosed -> {
+                        removeOverlayView()
+                    }
+                    is OverlayEvent.ScreenshotsChanged -> {
+                        // handle screenshots change
+                    }
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -191,6 +229,13 @@ class OverlayService : Service() {
                     },
                     onDismiss = {
                         removeOverlayView()
+                    },
+                    onOpenSearch = {
+                        val openAppIntent = Intent(this@OverlayService, MainActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                            putExtra(MainActivity.EXTRA_NAVIGATE_TAB, MainActivity.TAB_SEARCH)
+                        }
+                        startActivity(openAppIntent)
                     }
                 )
             }
@@ -205,23 +250,20 @@ class OverlayService : Service() {
         }
     }
 
-    private fun handleMoveToCategory(screenshot: ScreenshotItem, category: Category) {
+    private fun handleMoveToCategory(screenshot: ScreenshotItem, category: CategoryUiModel) {
         serviceScope.launch {
-            val result = MediaStoreOrganizer.moveToCategory(this@OverlayService, screenshot, category)
-            result.onSuccess { newUri ->
+            val screenshotUi = com.screenarc.app.model.ScreenshotUiModel(
+                id = screenshot.id,
+                uri = screenshot.uri.toString(),
+                displayName = screenshot.displayName,
+                dateAdded = screenshot.dateAdded,
+                size = screenshot.size,
+                relativePath = screenshot.relativePath,
+                mimeType = screenshot.mimeType
+            )
+            val result = screenshotRepository.moveToCategory(screenshotUi, category)
+            result.onSuccess {
                 Log.d(TAG, "Successfully moved screenshot to ${category.name}")
-                historyRepository.addRecord(
-                    OrganizedRecord(
-                        id = "rec_${System.currentTimeMillis()}",
-                        screenshotId = screenshot.id,
-                        uri = newUri,
-                        fileName = screenshot.displayName,
-                        categoryName = category.name,
-                        targetFolder = category.subfolderName,
-                        timestamp = System.currentTimeMillis(),
-                        success = true
-                    )
-                )
             }.onFailure { err ->
                 Log.e(TAG, "Failed moving screenshot: ${err.message}", err)
                 Toast.makeText(this@OverlayService, "Error moving to ${category.name}: ${err.message}", Toast.LENGTH_SHORT).show()
@@ -354,9 +396,6 @@ class OverlayService : Service() {
     }
 }
 
-/**
- * Custom LifecycleOwner, SavedStateRegistryOwner, and ViewModelStoreOwner for ComposeView in WindowManager
- */
 private class OverlayServiceLifecycleOwner : LifecycleOwner, ViewModelStoreOwner, SavedStateRegistryOwner {
     private val lifecycleRegistry = LifecycleRegistry(this)
     private val savedStateRegistryController = SavedStateRegistryController.create(this)

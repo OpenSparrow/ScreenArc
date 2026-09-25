@@ -6,6 +6,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+enum class OcrProcessingMode {
+    MANUAL_ONLY,
+    ASK_BEFORE_PROCESSING,
+    AUTOMATIC
+}
+
 data class AppSettings(
     val isServiceEnabled: Boolean = false,
     val bubbleSizeDp: Int = 64,
@@ -14,7 +20,8 @@ data class AppSettings(
     val hapticFeedbackEnabled: Boolean = true,
     val dynamicPaletteEnabled: Boolean = true,
     val autoExpandOnCapture: Boolean = true,
-    val playSoundOnDrop: Boolean = false
+    val playSoundOnDrop: Boolean = false,
+    val ocrProcessingMode: OcrProcessingMode = OcrProcessingMode.ASK_BEFORE_PROCESSING
 )
 
 class AppSettingsRepository(context: Context) {
@@ -24,6 +31,13 @@ class AppSettingsRepository(context: Context) {
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
     private fun loadSettings(): AppSettings {
+        val ocrModeName = prefs.getString("ocr_processing_mode", OcrProcessingMode.ASK_BEFORE_PROCESSING.name)
+        val ocrMode = try {
+            OcrProcessingMode.valueOf(ocrModeName ?: OcrProcessingMode.ASK_BEFORE_PROCESSING.name)
+        } catch (e: Exception) {
+            OcrProcessingMode.ASK_BEFORE_PROCESSING
+        }
+
         return AppSettings(
             isServiceEnabled = prefs.getBoolean("is_service_enabled", false),
             bubbleSizeDp = prefs.getInt("bubble_size_dp", 64),
@@ -32,7 +46,8 @@ class AppSettingsRepository(context: Context) {
             hapticFeedbackEnabled = prefs.getBoolean("haptic_feedback_enabled", true),
             dynamicPaletteEnabled = prefs.getBoolean("dynamic_palette_enabled", true),
             autoExpandOnCapture = prefs.getBoolean("auto_expand_capture", true),
-            playSoundOnDrop = prefs.getBoolean("play_sound_drop", false)
+            playSoundOnDrop = prefs.getBoolean("play_sound_drop", false),
+            ocrProcessingMode = ocrMode
         )
     }
 
@@ -47,7 +62,9 @@ class AppSettingsRepository(context: Context) {
             putBoolean("dynamic_palette_enabled", updated.dynamicPaletteEnabled)
             putBoolean("auto_expand_capture", updated.autoExpandOnCapture)
             putBoolean("play_sound_drop", updated.playSoundOnDrop)
+            putString("ocr_processing_mode", updated.ocrProcessingMode.name)
         }.apply()
         _settings.value = updated
     }
 }
+

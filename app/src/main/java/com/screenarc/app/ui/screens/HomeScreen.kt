@@ -1,6 +1,5 @@
 package com.screenarc.app.ui.screens
 
-import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -8,7 +7,6 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -36,17 +34,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -55,7 +49,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -73,7 +66,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -82,7 +74,7 @@ import androidx.compose.ui.unit.sp
 import com.screenarc.app.data.AppSettingsRepository
 import com.screenarc.app.data.CategoryRepository
 import com.screenarc.app.data.OrganizedHistoryRepository
-import com.screenarc.app.model.Category
+import com.screenarc.app.model.CategoryUiModel
 import com.screenarc.app.service.OverlayService
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -94,6 +86,7 @@ fun HomeScreen(
     settingsRepo: AppSettingsRepository,
     historyRepo: OrganizedHistoryRepository,
     onNavigateToCategories: () -> Unit,
+    onNavigateToSearch: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -103,7 +96,6 @@ fun HomeScreen(
 
     var hasOverlayPermission by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
 
-    // Check permission whenever UI comes to focus
     LaunchedEffect(Unit) {
         hasOverlayPermission = Settings.canDrawOverlays(context)
     }
@@ -115,12 +107,6 @@ fun HomeScreen(
         if (hasOverlayPermission && settings.isServiceEnabled) {
             OverlayService.startService(context)
         }
-    }
-
-    val storagePermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        // check status
     }
 
     val pickImageLauncher = rememberLauncherForActivityResult(
@@ -139,7 +125,6 @@ fun HomeScreen(
         }
     }
 
-    // Pulsing indicator for active service
     val infiniteTransition = rememberInfiniteTransition(label = "HomePulse")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1f,
@@ -158,7 +143,44 @@ fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp)
     ) {
-        // Hero / Header Card
+        // Quick Search Bar Shortcut at the top of Home (Section 4)
+        item {
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(22.dp))
+                    .clickable { onNavigateToSearch() }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "Search screenshots, OCR text, or categories...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    Icon(
+                        imageVector = Icons.Default.FindInPage,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+
+        // Hero / Service Status Card
         item {
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
@@ -228,7 +250,7 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     Text(
-                        text = "Automatically detect screenshots and present a floating Material 3 radial arc for 1-drag categorization into organized folders.",
+                        text = "Automatically detect screenshots and present a floating Material 3 radial arc for 1-drag categorization with on-device ML Kit OCR indexing.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
                     )
@@ -236,7 +258,7 @@ fun HomeScreen(
             }
         }
 
-        // Permission Card (if overlay permission missing)
+        // Overlay Permission Alert
         if (!hasOverlayPermission) {
             item {
                 Card(
@@ -289,7 +311,7 @@ fun HomeScreen(
             }
         }
 
-        // Interactive Simulator & Quick Testing Section
+        // Live Test & Quick Testing Section
         item {
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
@@ -321,14 +343,13 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "Trigger the floating radial arc menu immediately to test the drag-and-drop gesture and dynamic color palette extraction:",
+                        text = "Trigger the floating radial arc menu immediately to test the drag-and-drop gesture, adaptive sizing, and on-device OCR:",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Action buttons grid
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -391,7 +412,7 @@ fun HomeScreen(
             }
         }
 
-        // Categories Quick Row
+        // Active Categories Row
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -416,7 +437,7 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(vertical = 4.dp)
             ) {
-                items(categories) { category ->
+                items(categories, key = { it.id }) { category ->
                     Surface(
                         shape = RoundedCornerShape(18.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,

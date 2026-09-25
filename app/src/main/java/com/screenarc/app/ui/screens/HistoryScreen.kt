@@ -328,7 +328,7 @@ fun HistoryScreen(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(16.dp)
                         ) {
-                            Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Open")
                         }

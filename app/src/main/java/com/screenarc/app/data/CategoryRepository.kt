@@ -1,107 +1,128 @@
 package com.screenarc.app.data
 
 import android.content.Context
-import android.content.SharedPreferences
-import com.screenarc.app.model.Category
-import kotlinx.coroutines.flow.MutableStateFlow
+import android.os.Environment
+import android.util.Log
+import com.screenarc.app.data.local.db.AppDatabase
+import com.screenarc.app.data.local.db.entity.CategoryEntity
+import com.screenarc.app.model.CategoryUiModel
+import com.screenarc.app.model.OverlayEvent
+import com.screenarc.app.service.OverlayEventBus
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import org.json.JSONArray
-import org.json.JSONObject
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
-class CategoryRepository(context: Context) {
-    private val prefs: SharedPreferences = context.getSharedPreferences("screenarc_categories", Context.MODE_PRIVATE)
+class CategoryRepository(private val context: Context) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val database = AppDatabase.getInstance(context)
+    private val categoryDao = database.categoryDao()
 
-    private val _categories = MutableStateFlow<List<Category>>(emptyList())
-    val categories: StateFlow<List<Category>> = _categories.asStateFlow()
+    val categoriesFlow: Flow<List<CategoryUiModel>> = categoryDao.getAllCategoriesFlow()
+        .map { entities ->
+            if (entities.isEmpty()) {
+                // Ensure default categories exist
+                categoryDao.insertCategories(CategoryEntity.DEFAULT_ENTITIES)
+                CategoryEntity.DEFAULT_ENTITIES.map { it.toUiModel() }
+            } else {
+                entities.map { it.toUiModel() }
+            }
+        }
+
+    val categories: StateFlow<List<CategoryUiModel>> = categoriesFlow
+        .stateIn(
+            scope = scope,
+            started = SharingStarted.Eagerly,
+            initialValue = CategoryEntity.DEFAULT_ENTITIES.map { it.toUiModel() }
+        )
 
     init {
-        loadCategories()
-    }
-
-    private fun loadCategories() {
-        val jsonString = prefs.getString(KEY_CATEGORIES, null)
-        if (jsonString != null) {
-            try {
-                val jsonArray = JSONArray(jsonString)
-                val list = mutableListOf<Category>()
-                for (i in 0 until jsonArray.length()) {
-                    val obj = jsonArray.getJSONObject(i)
-                    list.add(
-                        Category(
-                            id = obj.getString("id"),
-                            name = obj.getString("name"),
-                            subfolderName = obj.getString("subfolderName"),
-                            iconName = obj.optString("iconName", "Description"),
-                            colorHex = obj.optLong("colorHex", 0xFF6750A4),
-                            isDefault = obj.optBoolean("isDefault", false),
-                            orderIndex = obj.optInt("orderIndex", i)
-                        )
-                    )
-                }
-                _categories.value = list.sortedBy { it.orderIndex }
-                return
-            } catch (e: Exception) {
-                e.printStackTrace()
+        // Initial setup check
+        scope.launch {
+            val count = categoryDao.getCategoryCount()
+            if (count == 0) {
+                categoryDao.insertCategories(CategoryEntity.DEFAULT_ENTITIES)
             }
+            refreshOverlayCategories()
         }
-        // Initial default setup
-        _categories.value = Category.DEFAULT_CATEGORIES
-        saveCategories(_categories.value)
     }
 
-    private fun saveCategories(list: List<Category>) {
-        val jsonArray = JSONArray()
-        list.forEach { cat ->
-            val obj = JSONObject().apply {
-                put("id", cat.id)
-                put("name", cat.name)
-                put("subfolderName", cat.subfolderName)
-                put("iconName", cat.iconName)
-                put("colorHex", cat.colorHex)
-                put("isDefault", cat.isDefault)
-                put("orderIndex", cat.orderIndex)
-            }
-            jsonArray.put(obj)
-        }
-        prefs.edit().putString(KEY_CATEGORIES, jsonArray.toString()).apply()
-        _categories.value = list.sortedBy { it.orderIndex }
+    suspend fun refreshOverlayCategories() = withContext(Dispatchers.IO) {
+        val currentCategories = categoryDao.getAllCategories().map { it.toUiModel() }
+        OverlayEventBus.postEvent(OverlayEvent.CategoriesChanged(currentCategories))
     }
 
-    fun addCategory(name: String, subfolder: String, iconName: String, colorHex: Long) {
-        val current = _categories.value.toMutableList()
-        val id = "cat_${System.currentTimeMillis()}"
-        val cleanSubfolder = if (subfolder.isBlank()) name.trim() else subfolder.trim()
-        val newCategory = Category(
-            id = id,
-            name = name.trim(),
+    suspend fun addCategory(
+        name: String,
+        subfolder: String,
+        iconName: String,
+        colorHex: Long
+    ): Long = withContext(Dispatchers.IO) {
+        val cleanName = name.trim()
+        val cleanSubfolder = if (subfolder.isBlank()) cleanName else subfolder.trim()
+        val currentCount = categoryDao.getCategoryCount()
+
+        val newEntity = CategoryEntity(
+            name = cleanName,
             subfolderName = cleanSubfolder,
             iconName = iconName,
             colorHex = colorHex,
             isDefault = false,
-            orderIndex = current.size
+            orderIndex = currentCount
         )
-        current.add(newCategory)
-        saveCategories(current)
+
+        val id = categoryDao.insertCategory(newEntity)
+
+        // Ensure target folder exists on disk if possible
+        createCategoryDirectory(cleanSubfolder)
+
+        refreshOverlayCategories()
+        id
     }
 
-    fun updateCategory(category: Category) {
-        val current = _categories.value.map {
-            if (it.id == category.id) category else it
+    suspend fun updateCategory(category: CategoryUiModel) = withContext(Dispatchers.IO) {
+        val entity = CategoryEntity(
+            id = category.id,
+            name = category.name.trim(),
+            subfolderName = category.subfolderName.trim(),
+            iconName = category.iconName,
+            colorHex = category.colorHex,
+            isDefault = category.isDefault,
+            orderIndex = category.orderIndex
+        )
+        categoryDao.updateCategory(entity)
+        createCategoryDirectory(category.subfolderName)
+        refreshOverlayCategories()
+    }
+
+    suspend fun deleteCategory(id: Long) = withContext(Dispatchers.IO) {
+        categoryDao.deleteCategoryById(id)
+        refreshOverlayCategories()
+    }
+
+    suspend fun resetToDefaults() = withContext(Dispatchers.IO) {
+        categoryDao.deleteAllCategories()
+        categoryDao.insertCategories(CategoryEntity.DEFAULT_ENTITIES)
+        refreshOverlayCategories()
+    }
+
+    private fun createCategoryDirectory(subfolderName: String) {
+        try {
+            val picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+            val screenshotsDir = File(picturesDir, "Screenshots")
+            val targetDir = File(screenshotsDir, subfolderName)
+            if (!targetDir.exists()) {
+                targetDir.mkdirs()
+            }
+        } catch (e: Exception) {
+            Log.w("CategoryRepository", "Could not directly create directory on storage: ${e.message}")
         }
-        saveCategories(current)
-    }
-
-    fun deleteCategory(id: String) {
-        val current = _categories.value.filterNot { it.id == id }
-        saveCategories(current)
-    }
-
-    fun resetToDefaults() {
-        saveCategories(Category.DEFAULT_CATEGORIES)
-    }
-
-    companion object {
-        private const val KEY_CATEGORIES = "saved_categories_json"
     }
 }

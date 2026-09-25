@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -22,16 +23,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.ImageSearch
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.ImageSearch
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -56,8 +59,10 @@ import com.screenarc.app.service.OverlayService
 import com.screenarc.app.ui.screens.CategoriesScreen
 import com.screenarc.app.ui.screens.HistoryScreen
 import com.screenarc.app.ui.screens.HomeScreen
+import com.screenarc.app.ui.screens.ScreenshotsScreen
 import com.screenarc.app.ui.screens.SettingsScreen
 import com.screenarc.app.ui.theme.ScreenArcTheme
+import com.screenarc.app.viewmodel.SearchViewModel
 
 enum class NavigationTab(
     val title: String,
@@ -65,6 +70,7 @@ enum class NavigationTab(
     val unselectedIcon: ImageVector
 ) {
     HOME("Home", Icons.Filled.Home, Icons.Outlined.Home),
+    SEARCH("Search", Icons.Filled.Search, Icons.Outlined.Search),
     CATEGORIES("Categories", Icons.Filled.Category, Icons.Outlined.Category),
     HISTORY("History", Icons.Filled.History, Icons.Outlined.History),
     SETTINGS("Settings", Icons.Filled.Settings, Icons.Outlined.Settings)
@@ -75,6 +81,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var categoryRepository: CategoryRepository
     private lateinit var settingsRepository: AppSettingsRepository
     private lateinit var historyRepository: OrganizedHistoryRepository
+    private val searchViewModel: SearchViewModel by viewModels()
+
+    private var selectedTabState = mutableStateOf(NavigationTab.HOME)
 
     private val permissionRequestLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -91,11 +100,12 @@ class MainActivity : ComponentActivity() {
         settingsRepository = AppSettingsRepository(this)
         historyRepository = OrganizedHistoryRepository(this)
 
+        handleIncomingIntent(intent)
         requestRequiredPermissions()
 
         setContent {
             ScreenArcTheme {
-                var selectedTab by remember { mutableStateOf(NavigationTab.HOME) }
+                var selectedTab by remember { selectedTabState }
 
                 Scaffold(
                     topBar = {
@@ -175,7 +185,11 @@ class MainActivity : ComponentActivity() {
                                     categoryRepo = categoryRepository,
                                     settingsRepo = settingsRepository,
                                     historyRepo = historyRepository,
-                                    onNavigateToCategories = { selectedTab = NavigationTab.CATEGORIES }
+                                    onNavigateToCategories = { selectedTab = NavigationTab.CATEGORIES },
+                                    onNavigateToSearch = { selectedTab = NavigationTab.SEARCH }
+                                )
+                                NavigationTab.SEARCH -> ScreenshotsScreen(
+                                    searchViewModel = searchViewModel
                                 )
                                 NavigationTab.CATEGORIES -> CategoriesScreen(
                                     categoryRepo = categoryRepository
@@ -195,6 +209,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent)
+    }
+
+    private fun handleIncomingIntent(intent: Intent?) {
+        val tabTarget = intent?.getStringExtra(EXTRA_NAVIGATE_TAB)
+        if (tabTarget == TAB_SEARCH) {
+            selectedTabState.value = NavigationTab.SEARCH
+        }
+    }
+
     private fun requestRequiredPermissions() {
         val permissions = mutableListOf<String>()
 
@@ -210,5 +237,10 @@ class MainActivity : ComponentActivity() {
         }
 
         permissionRequestLauncher.launch(permissions.toTypedArray())
+    }
+
+    companion object {
+        const val EXTRA_NAVIGATE_TAB = "extra_navigate_tab"
+        const val TAB_SEARCH = "tab_search"
     }
 }

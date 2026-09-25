@@ -87,6 +87,19 @@ object MediaStoreOrganizer {
         }
     }
 
+    suspend fun copyToNewFolderPublic(
+        context: Context,
+        screenshot: ScreenshotItem,
+        targetRelativePath: String
+    ): Uri? = withContext(Dispatchers.IO) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            copyToNewFolder(context, screenshot, targetRelativePath)
+        } else {
+            val subfolder = targetRelativePath.removePrefix("Pictures/Screenshots/").removeSuffix("/")
+            copyToNewFolderPreQ(context, screenshot, subfolder)
+        }
+    }
+
     private fun copyToNewFolder(
         context: Context,
         screenshot: ScreenshotItem,
@@ -155,6 +168,7 @@ object MediaStoreOrganizer {
             null
         }
     }
+
 
     /**
      * Load recent screenshots from MediaStore

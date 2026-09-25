@@ -1,0 +1,673 @@
+package com.screenarc.app.ui.screens
+
+import android.content.Context
+import android.content.Intent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.FindInPage
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SearchBar
+import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.screenarc.app.data.OcrRepositoryImpl
+import com.screenarc.app.model.CategoryUiModel
+import com.screenarc.app.model.OcrBlock
+import com.screenarc.app.model.ScreenshotUiModel
+import com.screenarc.app.ui.dialogs.OcrOverlayImageViewer
+import com.screenarc.app.ui.dialogs.OcrResultDialog
+import com.screenarc.app.viewmodel.SearchViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ScreenshotsScreen(
+    searchViewModel: SearchViewModel,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val query by searchViewModel.queryFlow.collectAsState()
+    val uiState by searchViewModel.uiState.collectAsState()
+    val results by searchViewModel.searchResults.collectAsState()
+    val categories by searchViewModel.categories.collectAsState()
+
+    var screenshotForOcrModal by remember { mutableStateOf<ScreenshotUiModel?>(null) }
+    var screenshotForImageViewer by remember { mutableStateOf<ScreenshotUiModel?>(null) }
+    var screenshotForMoveCategory by remember { mutableStateOf<ScreenshotUiModel?>(null) }
+    var screenshotForCopyCategory by remember { mutableStateOf<ScreenshotUiModel?>(null) }
+    var screenshotToDelete by remember { mutableStateOf<ScreenshotUiModel?>(null) }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+    ) {
+        // Search Bar with Debouncing, Clear Button & Count
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp, bottom = 8.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "Search",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp)
+                )
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                OutlinedTextField(
+                    value = query.text,
+                    onValueChange = { searchViewModel.updateSearchText(it) },
+                    placeholder = { Text("Search by filename, OCR text, category...") },
+                    singleLine = true,
+                    colors = androidx.compose.material3.TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent
+                    ),
+                    modifier = Modifier.weight(1f)
+                )
+
+                if (query.text.isNotEmpty()) {
+                    IconButton(onClick = { searchViewModel.clearSearch() }) {
+                        Icon(
+                            imageVector = Icons.Default.Clear,
+                            contentDescription = "Clear search",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
+        // Category Filter Chips
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(bottom = 6.dp)
+        ) {
+            item {
+                FilterChip(
+                    selected = query.categoryId == null,
+                    onClick = { searchViewModel.setCategoryFilter(null) },
+                    label = { Text("All Categories") }
+                )
+            }
+            items(categories, key = { it.id }) { cat ->
+                FilterChip(
+                    selected = query.categoryId == cat.id,
+                    onClick = {
+                        val newId = if (query.categoryId == cat.id) null else cat.id
+                        searchViewModel.setCategoryFilter(newId)
+                    },
+                    label = { Text(cat.name) },
+                    leadingIcon = {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(cat.composeColor)
+                        )
+                    }
+                )
+            }
+        }
+
+        // Search options bar: OCR search toggle, batch OCR triggers, search count
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "${results.size} result(s)",
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Run OCR for current search set
+                if (results.isNotEmpty() && !uiState.isOcrRunning) {
+                    OutlinedButton(
+                        onClick = { searchViewModel.runOcrForSearchResults() },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.FindInPage, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("OCR Results", fontSize = 11.sp)
+                    }
+                }
+
+                if (uiState.isOcrRunning) {
+                    Button(
+                        onClick = { searchViewModel.cancelOcr() },
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        ),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Cancel, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Cancel OCR", fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+
+        // OCR progress indicator bar
+        if (uiState.isOcrRunning) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Processing on-device text recognition...",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+
+        // Info / Error Message banner
+        uiState.infoMessage?.let { msg ->
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = msg, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { searchViewModel.clearInfoMessage() }, modifier = Modifier.size(20.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Dismiss", modifier = Modifier.size(14.dp))
+                    }
+                }
+            }
+        }
+
+        // Results Grid
+        if (results.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 64.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                        modifier = Modifier.size(56.dp)
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = if (query.text.isNotEmpty()) "No screenshots matched '${query.text}'" else "No screenshots found",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Try searching by filename, detected text (e.g. 'invoice', 'tech'), or clear filters.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 160.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(results, key = { it.uri }) { screenshot ->
+                    ScreenshotCardItem(
+                        screenshot = screenshot,
+                        onDetectText = {
+                            screenshotForOcrModal = screenshot
+                            searchViewModel.runOcrForScreenshot(screenshot)
+                        },
+                        onViewImage = {
+                            screenshotForImageViewer = screenshot
+                        },
+                        onMove = { screenshotForMoveCategory = screenshot },
+                        onCopy = { screenshotForCopyCategory = screenshot },
+                        onDelete = { screenshotToDelete = screenshot }
+                    )
+                }
+            }
+        }
+    }
+
+    // OCR Result Modal Dialog
+    screenshotForOcrModal?.let { item ->
+        OcrResultDialog(
+            screenshot = item,
+            ocrResult = uiState.activeOcrResult,
+            isLoading = uiState.isOcrRunning && uiState.activeOcrUri == item.uri,
+            onRetry = { searchViewModel.runOcrForScreenshot(item) },
+            onAddToSearchIndex = {
+                searchViewModel.dismissOcrModal()
+                screenshotForOcrModal = null
+            },
+            onDismiss = {
+                searchViewModel.dismissOcrModal()
+                screenshotForOcrModal = null
+            },
+            onViewOverlay = {
+                screenshotForImageViewer = item
+            }
+        )
+    }
+
+    // Fullscreen Image Viewer with Visual OCR Boxes
+    screenshotForImageViewer?.let { item ->
+        val blocks = OcrRepositoryImpl.parseBlocksFromJson(uiState.activeOcrResult?.blocks?.let { null })
+        OcrOverlayImageViewer(
+            screenshot = item,
+            blocks = blocks,
+            onDismiss = { screenshotForImageViewer = null }
+        )
+    }
+
+    // Move to Category Dialog
+    screenshotForMoveCategory?.let { item ->
+        AlertDialog(
+            onDismissRequest = { screenshotForMoveCategory = null },
+            title = { Text("Move to Category") },
+            text = {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(categories) { cat ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    searchViewModel.moveToCategory(item, cat)
+                                    screenshotForMoveCategory = null
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .clip(CircleShape)
+                                        .background(cat.composeColor)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(cat.name, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { screenshotForMoveCategory = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Copy to Category Dialog
+    screenshotForCopyCategory?.let { item ->
+        AlertDialog(
+            onDismissRequest = { screenshotForCopyCategory = null },
+            title = { Text("Copy to Category") },
+            text = {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(categories) { cat ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    searchViewModel.copyToCategory(item, cat)
+                                    screenshotForCopyCategory = null
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .clip(CircleShape)
+                                        .background(cat.composeColor)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(cat.name, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { screenshotForCopyCategory = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Delete Confirmation
+    screenshotToDelete?.let { item ->
+        AlertDialog(
+            onDismissRequest = { screenshotToDelete = null },
+            title = { Text("Delete Screenshot") },
+            text = { Text("Are you sure you want to delete '${item.displayName}'?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        searchViewModel.deleteScreenshot(item)
+                        screenshotToDelete = null
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { screenshotToDelete = null }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+@Composable
+fun ScreenshotCardItem(
+    screenshot: ScreenshotUiModel,
+    onDetectText: () -> Unit,
+    onViewImage: () -> Unit,
+    onMove: () -> Unit,
+    onCopy: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var showMenu by remember { mutableStateOf(false) }
+    val dateFormat = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
+
+    // OCR status badge styling
+    val (statusLabel, statusColor, statusBg) = when (screenshot.ocrStatus) {
+        "COMPLETED" -> Triple("Text Found", Color(0xFF2E7D32), Color(0xFFE8F5E9))
+        "NO_TEXT" -> Triple("No Text", Color(0xFF616161), Color(0xFFF5F5F5))
+        "PROCESSING" -> Triple("Processing...", Color(0xFF1565C0), Color(0xFFE3F2FD))
+        "FAILED" -> Triple("Failed", Color(0xFFC62828), Color(0xFFFFEBEE))
+        else -> Triple("Not Processed", Color(0xFFE65100), Color(0xFFFFF3E0))
+    }
+
+    ElevatedCard(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        ),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .clickable { onViewImage() }
+    ) {
+        Column {
+            // Image Preview with OCR Badge
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(130.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                AsyncImage(
+                    model = screenshot.contentUri,
+                    contentDescription = screenshot.displayName,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                // OCR Status Badge at Top-Left
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = statusBg.copy(alpha = 0.95f),
+                    border = BorderStroke(1.dp, statusColor.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .padding(8.dp)
+                        .align(Alignment.TopStart)
+                ) {
+                    Text(
+                        text = statusLabel,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = statusColor,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+
+                // Category pill at Bottom-Left if categorized
+                screenshot.categoryName?.let { catName ->
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
+                        modifier = Modifier
+                            .padding(8.dp)
+                            .align(Alignment.BottomStart)
+                    ) {
+                        Text(
+                            text = catName,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+
+            // Info and Card Actions
+            Column(modifier = Modifier.padding(10.dp)) {
+                Text(
+                    text = screenshot.displayName,
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Text(
+                    text = dateFormat.format(Date(screenshot.dateAdded * 1000)),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // Recognized text snippet if present
+                if (!screenshot.recognizedText.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "\"${screenshot.recognizedText.trim()}\"",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Card actions: Detect Text & Overflow Menu
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = onDetectText,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.TextFields,
+                            contentDescription = null,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Detect Text", fontSize = 10.sp)
+                    }
+
+                    Box {
+                        IconButton(
+                            onClick = { showMenu = true },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "More actions",
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Move to Category") },
+                                onClick = {
+                                    showMenu = false
+                                    onMove()
+                                },
+                                leadingIcon = { Icon(Icons.Default.DriveFileMove, contentDescription = null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Copy to Category") },
+                                onClick = {
+                                    showMenu = false
+                                    onCopy()
+                                },
+                                leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                onClick = {
+                                    showMenu = false
+                                    onDelete()
+                                },
+                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
