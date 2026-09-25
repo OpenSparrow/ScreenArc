@@ -1,6 +1,7 @@
 package com.screenarc.app.ui.screens
 
 import android.content.Intent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,12 +21,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
@@ -46,6 +50,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -75,8 +80,16 @@ fun HistoryScreen(
     var selectedRecord by remember { mutableStateOf<OrganizedRecord?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
 
+    val ruleTriggerCount = remember(history) { history.count { it.ruleName != null || it.triggerType == OrganizedRecord.TRIGGER_RULE } }
+    val manualTriggerCount = remember(history) { history.count { it.ruleName == null && it.triggerType != OrganizedRecord.TRIGGER_RULE } }
+
     val filteredList = remember(history, selectedFilter) {
-        if (selectedFilter == "All") history else history.filter { it.categoryName == selectedFilter }
+        when (selectedFilter) {
+            "All" -> history
+            "Rules" -> history.filter { it.ruleName != null || it.triggerType == OrganizedRecord.TRIGGER_RULE }
+            "Manual" -> history.filter { it.ruleName == null && it.triggerType != OrganizedRecord.TRIGGER_RULE }
+            else -> history.filter { it.categoryName == selectedFilter }
+        }
     }
 
     LazyColumn(
@@ -94,11 +107,11 @@ fun HistoryScreen(
             ) {
                 Column {
                     Text(
-                        text = "Organized Screenshots",
+                        text = "Organized History",
                         style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
                     )
                     Text(
-                        text = "${history.size} total organized",
+                        text = "${history.size} total organized ($ruleTriggerCount by rules, $manualTriggerCount manual/bulk)",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -112,7 +125,7 @@ fun HistoryScreen(
             }
         }
 
-        // Category Filter Chips
+        // Filter Chips: All, Rules Only, Manual Only, Category Specific
         item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
@@ -122,12 +135,40 @@ fun HistoryScreen(
                         label = { Text("All (${history.size})") }
                     )
                 }
+                item {
+                    FilterChip(
+                        selected = selectedFilter == "Rules",
+                        onClick = { selectedFilter = "Rules" },
+                        label = { Text("⚡ Rules ($ruleTriggerCount)") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                        }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = selectedFilter == "Manual",
+                        onClick = { selectedFilter = "Manual" },
+                        label = { Text("✋ Manual ($manualTriggerCount)") },
+                        leadingIcon = {
+                            Icon(Icons.Default.TouchApp, contentDescription = null, modifier = Modifier.size(14.dp))
+                        }
+                    )
+                }
                 items(categories) { cat ->
                     val count = history.count { it.categoryName == cat.name }
                     FilterChip(
                         selected = selectedFilter == cat.name,
                         onClick = { selectedFilter = cat.name },
-                        label = { Text("${cat.name} ($count)") }
+                        label = { Text("${cat.name} ($count)") },
+                        leadingIcon = {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(cat.composeColor)
+                            )
+                        }
                     )
                 }
             }
@@ -152,16 +193,24 @@ fun HistoryScreen(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "No screenshots in '$selectedFilter'",
+                            text = "No organized screenshots found for '$selectedFilter'",
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Execute an auto-categorization rule or move screenshots manually to see them here.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
                     }
                 }
             }
         } else {
             items(filteredList, key = { it.id }) { record ->
-                val dateFormat = SimpleDateFormat("MMM dd, yyyy • HH:mm", Locale.getDefault())
+                val dateFormat = remember { SimpleDateFormat("MMM dd, yyyy • HH:mm", Locale.getDefault()) }
+                val targetCategory = categories.find { it.name.equals(record.categoryName, ignoreCase = true) }
+
                 ElevatedCard(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -182,7 +231,7 @@ fun HistoryScreen(
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.size(60.dp)
+                            modifier = Modifier.size(64.dp)
                         ) {
                             AsyncImage(
                                 model = record.uri,
@@ -197,29 +246,106 @@ fun HistoryScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = record.fileName,
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                 maxLines = 1
                             )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            // Badges row: Category Pill + Provenance Badge (Rule vs Bulk vs Manual)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                // Category Pill
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    modifier = Modifier.padding(end = 6.dp)
+                                    color = targetCategory?.composeColor?.copy(alpha = 0.2f) ?: MaterialTheme.colorScheme.primaryContainer
                                 ) {
                                     Text(
                                         text = record.categoryName,
-                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 9.sp),
+                                        color = MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }
-                                Text(
-                                    text = dateFormat.format(Date(record.timestamp)),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+
+                                // Rule Provenance or Action Badge
+                                if (record.ruleName != null) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.tertiaryContainer
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Bolt,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                                modifier = Modifier.size(11.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text(
+                                                text = "Rule: ${record.ruleName}",
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 9.sp,
+                                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                                ),
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
+                                } else if (record.triggerType == OrganizedRecord.TRIGGER_BULK_MANUAL) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.secondaryContainer
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Inventory2,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                modifier = Modifier.size(11.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text(
+                                                text = "Bulk Move",
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 9.sp,
+                                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                                )
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant
+                                    ) {
+                                        Text(
+                                            text = "Manual Move",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
                             }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Text(
+                                text = dateFormat.format(Date(record.timestamp)),
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
@@ -260,7 +386,55 @@ fun HistoryScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Rule Provenance banner in modal
+                    if (record.ruleName != null) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.tertiaryContainer,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Bolt, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "Executed by Auto-Categorization Rule",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                                    )
+                                    Text(
+                                        text = "Rule: '${record.ruleName}'",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                                    )
+                                }
+                            }
+                        }
+                    } else if (record.triggerType == OrganizedRecord.TRIGGER_BULK_MANUAL) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Inventory2, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Organized via Bulk Move action",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                        }
+                    }
 
                     // Image Preview
                     Surface(
@@ -285,7 +459,7 @@ fun HistoryScreen(
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                     Text(
-                        text = "Path: Pictures/Screenshots/${record.targetFolder}/",
+                        text = "Folder: Pictures/Screenshots/${record.targetFolder}/",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

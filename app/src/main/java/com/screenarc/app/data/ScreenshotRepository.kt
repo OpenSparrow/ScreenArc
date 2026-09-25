@@ -121,7 +121,9 @@ class ScreenshotRepository(
 
     suspend fun moveToCategory(
         screenshot: ScreenshotUiModel,
-        category: CategoryUiModel
+        category: CategoryUiModel,
+        ruleName: String? = null,
+        triggerType: String = OrganizedRecord.TRIGGER_MANUAL
     ): Result<Uri> = withContext(Dispatchers.IO) {
         val legacyCategory = com.screenarc.app.model.Category(
             id = category.id.toString(),
@@ -162,14 +164,16 @@ class ScreenshotRepository(
             // Add to history
             historyRepository.addRecord(
                 OrganizedRecord(
-                    id = "rec_${System.currentTimeMillis()}",
+                    id = "rec_${System.currentTimeMillis()}_${screenshot.id}",
                     screenshotId = screenshot.id,
                     uri = newUri,
                     fileName = screenshot.displayName,
                     categoryName = category.name,
                     targetFolder = category.subfolderName,
                     timestamp = System.currentTimeMillis(),
-                    success = true
+                    success = true,
+                    ruleName = ruleName,
+                    triggerType = triggerType
                 )
             )
 
@@ -178,9 +182,29 @@ class ScreenshotRepository(
         result
     }
 
+    suspend fun moveBatchToCategory(
+        screenshots: List<ScreenshotUiModel>,
+        category: CategoryUiModel,
+        ruleName: String? = null,
+        triggerType: String = OrganizedRecord.TRIGGER_BULK_MANUAL
+    ): Int = withContext(Dispatchers.IO) {
+        var successCount = 0
+        val historyRecords = mutableListOf<OrganizedRecord>()
+
+        for (screenshot in screenshots) {
+            val res = moveToCategory(screenshot, category, ruleName = ruleName, triggerType = triggerType)
+            if (res.isSuccess) {
+                successCount++
+            }
+        }
+        successCount
+    }
+
     suspend fun copyToCategory(
         screenshot: ScreenshotUiModel,
-        category: CategoryUiModel
+        category: CategoryUiModel,
+        ruleName: String? = null,
+        triggerType: String = OrganizedRecord.TRIGGER_MANUAL
     ): Result<Uri> = withContext(Dispatchers.IO) {
         val relativeSubfolder = "Pictures/Screenshots/${category.subfolderName}/"
         val legacyItem = ScreenshotItem(
@@ -209,14 +233,16 @@ class ScreenshotRepository(
 
             historyRepository.addRecord(
                 OrganizedRecord(
-                    id = "rec_${System.currentTimeMillis()}",
+                    id = "rec_${System.currentTimeMillis()}_${screenshot.id}",
                     screenshotId = screenshot.id,
                     uri = newUri,
                     fileName = "[Copy] ${screenshot.displayName}",
                     categoryName = category.name,
                     targetFolder = category.subfolderName,
                     timestamp = System.currentTimeMillis(),
-                    success = true
+                    success = true,
+                    ruleName = ruleName,
+                    triggerType = triggerType
                 )
             )
             OverlayEventBus.postEvent(OverlayEvent.RefreshRequested)
@@ -224,6 +250,22 @@ class ScreenshotRepository(
         } else {
             Result.failure(Exception("Failed to copy screenshot to ${category.name}"))
         }
+    }
+
+    suspend fun copyBatchToCategory(
+        screenshots: List<ScreenshotUiModel>,
+        category: CategoryUiModel,
+        ruleName: String? = null,
+        triggerType: String = OrganizedRecord.TRIGGER_BULK_MANUAL
+    ): Int = withContext(Dispatchers.IO) {
+        var successCount = 0
+        for (screenshot in screenshots) {
+            val res = copyToCategory(screenshot, category, ruleName = ruleName, triggerType = triggerType)
+            if (res.isSuccess) {
+                successCount++
+            }
+        }
+        successCount
     }
 
     suspend fun deleteScreenshot(screenshot: ScreenshotUiModel): Result<Boolean> = withContext(Dispatchers.IO) {
@@ -237,6 +279,15 @@ class ScreenshotRepository(
             Log.e(TAG, "Error deleting screenshot: ${e.message}", e)
             Result.failure(e)
         }
+    }
+
+    suspend fun deleteBatch(screenshots: List<ScreenshotUiModel>): Int = withContext(Dispatchers.IO) {
+        var deletedCount = 0
+        for (screenshot in screenshots) {
+            val res = deleteScreenshot(screenshot)
+            if (res.isSuccess) deletedCount++
+        }
+        deletedCount
     }
 
     companion object {

@@ -27,6 +27,8 @@ class OrganizedHistoryRepository(context: Context) {
             val list = mutableListOf<OrganizedRecord>()
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
+                val ruleNameRaw = obj.optString("ruleName", "")
+                val triggerTypeRaw = obj.optString("triggerType", OrganizedRecord.TRIGGER_MANUAL)
                 list.add(
                     OrganizedRecord(
                         id = obj.getString("id"),
@@ -36,7 +38,9 @@ class OrganizedHistoryRepository(context: Context) {
                         categoryName = obj.getString("categoryName"),
                         targetFolder = obj.getString("targetFolder"),
                         timestamp = obj.getLong("timestamp"),
-                        success = obj.optBoolean("success", true)
+                        success = obj.optBoolean("success", true),
+                        ruleName = if (ruleNameRaw.isNotBlank()) ruleNameRaw else null,
+                        triggerType = if (triggerTypeRaw.isNotBlank()) triggerTypeRaw else OrganizedRecord.TRIGGER_MANUAL
                     )
                 )
             }
@@ -48,7 +52,7 @@ class OrganizedHistoryRepository(context: Context) {
 
     private fun saveHistory(list: List<OrganizedRecord>) {
         val array = JSONArray()
-        list.take(100).forEach { item ->
+        list.take(200).forEach { item ->
             val obj = JSONObject().apply {
                 put("id", item.id)
                 put("screenshotId", item.screenshotId)
@@ -58,6 +62,8 @@ class OrganizedHistoryRepository(context: Context) {
                 put("targetFolder", item.targetFolder)
                 put("timestamp", item.timestamp)
                 put("success", item.success)
+                put("ruleName", item.ruleName ?: "")
+                put("triggerType", item.triggerType)
             }
             array.put(obj)
         }
@@ -68,6 +74,12 @@ class OrganizedHistoryRepository(context: Context) {
     fun addRecord(record: OrganizedRecord) {
         val current = _history.value.toMutableList()
         current.add(0, record)
+        saveHistory(current)
+    }
+
+    fun addRecords(records: List<OrganizedRecord>) {
+        val current = _history.value.toMutableList()
+        current.addAll(0, records)
         saveHistory(current)
     }
 

@@ -87,6 +87,7 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation("org.json:json:20240303")
+    testImplementation("org.mockito:mockito-core:5.11.0")
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

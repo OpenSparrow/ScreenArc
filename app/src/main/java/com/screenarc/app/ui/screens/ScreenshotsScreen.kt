@@ -5,9 +5,14 @@ import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +38,8 @@ import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -47,11 +54,14 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -114,322 +124,453 @@ fun ScreenshotsScreen(
     var screenshotForCopyCategory by remember { mutableStateOf<ScreenshotUiModel?>(null) }
     var screenshotToDelete by remember { mutableStateOf<ScreenshotUiModel?>(null) }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
-    ) {
-        // Search Bar with Debouncing, Clear Button & Count
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    var showBulkMoveDialog by remember { mutableStateOf(false) }
+    var showBulkCopyDialog by remember { mutableStateOf(false) }
+    var showBulkDeleteDialog by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 10.dp, bottom = 8.dp)
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
         ) {
+            // Search Bar with Debouncing, Clear Button & Count
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp, bottom = 8.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    OutlinedTextField(
+                        value = query.text,
+                        onValueChange = { searchViewModel.updateSearchText(it) },
+                        placeholder = { Text("Search by filename, OCR text, category...") },
+                        singleLine = true,
+                        colors = androidx.compose.material3.TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    if (query.text.isNotEmpty()) {
+                        IconButton(onClick = { searchViewModel.clearSearch() }) {
+                            Icon(
+                                imageVector = Icons.Default.Clear,
+                                contentDescription = "Clear search",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    // Multi-selection mode toggle button
+                    IconButton(
+                        onClick = {
+                            searchViewModel.setSelectionMode(!uiState.isSelectionMode)
+                        }
+                    ) {
+                        Icon(
+                            imageVector = if (uiState.isSelectionMode) Icons.Default.Checklist else Icons.Default.Checklist,
+                            contentDescription = "Select mode",
+                            tint = if (uiState.isSelectionMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            // Category Filter Chips
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(bottom = 6.dp)
+            ) {
+                item {
+                    FilterChip(
+                        selected = query.categoryId == null,
+                        onClick = { searchViewModel.setCategoryFilter(null) },
+                        label = { Text("All Categories") }
+                    )
+                }
+                items(categories, key = { it.id }) { cat ->
+                    FilterChip(
+                        selected = query.categoryId == cat.id,
+                        onClick = {
+                            val newId = if (query.categoryId == cat.id) null else cat.id
+                            searchViewModel.setCategoryFilter(newId)
+                        },
+                        label = { Text(cat.name) },
+                        leadingIcon = {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(cat.composeColor)
+                            )
+                        }
+                    )
+                }
+            }
+
+            val batchProgress by searchViewModel.batchProgress.collectAsState()
+
+            // Search options bar: OCR search toggle, batch OCR triggers, search count
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = "Search",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp)
+                Text(
+                    text = if (uiState.isSelectionMode && uiState.selectedUris.isNotEmpty())
+                        "${uiState.selectedUris.size} selected / ${results.size} total"
+                    else
+                        "${results.size} result(s)",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Spacer(modifier = Modifier.width(10.dp))
-
-                OutlinedTextField(
-                    value = query.text,
-                    onValueChange = { searchViewModel.updateSearchText(it) },
-                    placeholder = { Text("Search by filename, OCR text, category...") },
-                    singleLine = true,
-                    colors = androidx.compose.material3.TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent
-                    ),
-                    modifier = Modifier.weight(1f)
-                )
-
-                if (query.text.isNotEmpty()) {
-                    IconButton(onClick = { searchViewModel.clearSearch() }) {
-                        Icon(
-                            imageVector = Icons.Default.Clear,
-                            contentDescription = "Clear search",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
-
-        // Category Filter Chips
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(bottom = 6.dp)
-        ) {
-            item {
-                FilterChip(
-                    selected = query.categoryId == null,
-                    onClick = { searchViewModel.setCategoryFilter(null) },
-                    label = { Text("All Categories") }
-                )
-            }
-            items(categories, key = { it.id }) { cat ->
-                FilterChip(
-                    selected = query.categoryId == cat.id,
-                    onClick = {
-                        val newId = if (query.categoryId == cat.id) null else cat.id
-                        searchViewModel.setCategoryFilter(newId)
-                    },
-                    label = { Text(cat.name) },
-                    leadingIcon = {
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .clip(CircleShape)
-                                .background(cat.composeColor)
-                        )
-                    }
-                )
-            }
-        }
-
-    val batchProgress by searchViewModel.batchProgress.collectAsState()
-
-        // Search options bar: OCR search toggle, batch OCR triggers, search count
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "${results.size} result(s)",
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                // Process & Index All Images Action
-                if (!uiState.isOcrRunning && !batchProgress.isRunning) {
-                    androidx.compose.material3.FilledTonalButton(
-                        onClick = { searchViewModel.processAndIndexAllImages() },
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(15.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Process All Images", fontSize = 11.sp)
-                    }
-                }
-
-                // Run OCR for current search set
-                if (results.isNotEmpty() && !uiState.isOcrRunning && !batchProgress.isRunning) {
-                    OutlinedButton(
-                        onClick = { searchViewModel.runOcrForSearchResults() },
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(Icons.Default.FindInPage, contentDescription = null, modifier = Modifier.size(15.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("OCR Filtered", fontSize = 11.sp)
-                    }
-                }
-
-                if (uiState.isOcrRunning || batchProgress.isRunning) {
-                    Button(
-                        onClick = { searchViewModel.cancelOcr() },
-                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error
-                        ),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(Icons.Default.Cancel, contentDescription = null, modifier = Modifier.size(15.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Cancel OCR", fontSize = 11.sp)
-                    }
-                }
-            }
-        }
-
-        // Detailed Batch Progress Card
-        if (batchProgress.isRunning) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp)
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Processing images...",
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = "${batchProgress.current} / ${batchProgress.total}",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    androidx.compose.material3.LinearProgressIndicator(
-                        progress = { batchProgress.progressFraction },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(8.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    if (batchProgress.currentFileName.isNotEmpty()) {
-                        Text(
-                            text = "Current: ${batchProgress.currentFileName}",
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                            maxLines = 1
-                        )
-                    }
-
-                    Text(
-                        text = "OCR: ${batchProgress.currentLanguage}",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Indexed: ${batchProgress.indexedCount}  |  Skipped: ${batchProgress.skippedCount}  |  Failed: ${batchProgress.failedCount}",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        Button(
-                            onClick = { searchViewModel.cancelOcr() },
-                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.error
-                            ),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                            shape = RoundedCornerShape(10.dp)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (uiState.isSelectionMode) {
+                        // Selection Mode Actions
+                        TextButton(
+                            onClick = {
+                                if (uiState.selectedUris.size == results.size) {
+                                    searchViewModel.clearSelection()
+                                } else {
+                                    searchViewModel.selectAll()
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                         ) {
-                            Icon(Icons.Default.Cancel, contentDescription = null, modifier = Modifier.size(13.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Cancel", fontSize = 11.sp)
+                            Text(
+                                text = if (uiState.selectedUris.size == results.size) "Deselect All" else "Select All",
+                                fontSize = 11.sp
+                            )
+                        }
+
+                        TextButton(
+                            onClick = { searchViewModel.setSelectionMode(false) },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text("Done", fontSize = 11.sp)
+                        }
+                    } else {
+                        // Process & Index All Images Action
+                        if (!uiState.isOcrRunning && !batchProgress.isRunning) {
+                            androidx.compose.material3.FilledTonalButton(
+                                onClick = { searchViewModel.processAndIndexAllImages() },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Process All", fontSize = 11.sp)
+                            }
+                        }
+
+                        // Run OCR for current search set
+                        if (results.isNotEmpty() && !uiState.isOcrRunning && !batchProgress.isRunning) {
+                            OutlinedButton(
+                                onClick = { searchViewModel.runOcrForSearchResults() },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.FindInPage, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("OCR Filtered", fontSize = 11.sp)
+                            }
+                        }
+
+                        if (uiState.isOcrRunning || batchProgress.isRunning) {
+                            Button(
+                                onClick = { searchViewModel.cancelOcr() },
+                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Cancel, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Cancel OCR", fontSize = 11.sp)
+                            }
                         }
                     }
                 }
             }
-        } else if (uiState.isOcrRunning) {
-            // Single image OCR progress indicator bar
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Processing on-device text recognition...",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-        }
 
-        // Info / Error Message banner
-        uiState.infoMessage?.let { msg ->
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-            ) {
+            // Detailed Batch Progress Card
+            if (batchProgress.isRunning) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Processing images...",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "${batchProgress.current} / ${batchProgress.total}",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        androidx.compose.material3.LinearProgressIndicator(
+                            progress = { batchProgress.progressFraction },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        if (batchProgress.currentFileName.isNotEmpty()) {
+                            Text(
+                                text = "Current: ${batchProgress.currentFileName}",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                maxLines = 1
+                            )
+                        }
+
+                        Text(
+                            text = "OCR: ${batchProgress.currentLanguage}",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Indexed: ${batchProgress.indexedCount}  |  Skipped: ${batchProgress.skippedCount}  |  Failed: ${batchProgress.failedCount}",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            Button(
+                                onClick = { searchViewModel.cancelOcr() },
+                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Cancel, contentDescription = null, modifier = Modifier.size(13.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Cancel", fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            } else if (uiState.isOcrRunning) {
+                // Single image OCR progress indicator bar
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = msg, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                    IconButton(onClick = { searchViewModel.clearInfoMessage() }, modifier = Modifier.size(20.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Dismiss", modifier = Modifier.size(14.dp))
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Processing...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            // Info / Error Message banner
+            uiState.infoMessage?.let { msg ->
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = msg, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { searchViewModel.clearInfoMessage() }, modifier = Modifier.size(20.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = "Dismiss", modifier = Modifier.size(14.dp))
+                        }
+                    }
+                }
+            }
+
+            // Results Grid
+            if (results.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = 64.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            modifier = Modifier.size(56.dp)
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = if (query.text.isNotEmpty()) "No screenshots matched '${query.text}'" else "No screenshots found",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Try searching by filename, detected text (e.g. 'movie', 'tech'), or clear filters.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 160.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 120.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(results, key = { it.uri }) { screenshot ->
+                        val isSelected = uiState.selectedUris.contains(screenshot.uri)
+                        ScreenshotCardItem(
+                            screenshot = screenshot,
+                            isSelectionMode = uiState.isSelectionMode,
+                            isSelected = isSelected,
+                            onToggleSelection = { searchViewModel.toggleSelection(screenshot.uri) },
+                            onDetectText = {
+                                screenshotForOcrModal = screenshot
+                                searchViewModel.runOcrForScreenshot(screenshot)
+                            },
+                            onViewImage = {
+                                screenshotForImageViewer = screenshot
+                            },
+                            onMove = { screenshotForMoveCategory = screenshot },
+                            onCopy = { screenshotForCopyCategory = screenshot },
+                            onDelete = { screenshotToDelete = screenshot }
+                        )
                     }
                 }
             }
         }
 
-        // Results Grid
-        if (results.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 64.dp),
-                contentAlignment = Alignment.Center
+        // Floating Bulk Action Bar at Bottom when items are selected
+        AnimatedVisibility(
+            visible = uiState.selectedUris.isNotEmpty(),
+            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(16.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shadowElevation = 8.dp,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                        modifier = Modifier.size(56.dp)
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = if (query.text.isNotEmpty()) "No screenshots matched '${query.text}'" else "No screenshots found",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Try searching by filename, detected text (e.g. 'invoice', 'tech'), or clear filters.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    )
-                }
-            }
-        } else {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 160.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                items(results, key = { it.uri }) { screenshot ->
-                    ScreenshotCardItem(
-                        screenshot = screenshot,
-                        onDetectText = {
-                            screenshotForOcrModal = screenshot
-                            searchViewModel.runOcrForScreenshot(screenshot)
-                        },
-                        onViewImage = {
-                            screenshotForImageViewer = screenshot
-                        },
-                        onMove = { screenshotForMoveCategory = screenshot },
-                        onCopy = { screenshotForCopyCategory = screenshot },
-                        onDelete = { screenshotToDelete = screenshot }
-                    )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "${uiState.selectedUris.size} selected",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            text = "Bulk operations",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        // Bulk Move Button
+                        Button(
+                            onClick = { showBulkMoveDialog = true },
+                            shape = RoundedCornerShape(14.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.DriveFileMove, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Move", fontSize = 12.sp)
+                        }
+
+                        // Bulk Copy Button
+                        OutlinedButton(
+                            onClick = { showBulkCopyDialog = true },
+                            shape = RoundedCornerShape(14.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Copy", fontSize = 12.sp)
+                        }
+
+                        // Bulk Delete Button
+                        IconButton(
+                            onClick = { showBulkDeleteDialog = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete selected", tint = MaterialTheme.colorScheme.error)
+                        }
+
+                        // Clear Button
+                        IconButton(
+                            onClick = { searchViewModel.clearSelection() },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear selection", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                    }
                 }
             }
         }
@@ -466,7 +607,118 @@ fun ScreenshotsScreen(
         )
     }
 
-    // Move to Category Dialog
+    // Bulk Move to Category Dialog
+    if (showBulkMoveDialog) {
+        AlertDialog(
+            onDismissRequest = { showBulkMoveDialog = false },
+            title = { Text("Move ${uiState.selectedUris.size} Selected Screenshots") },
+            text = {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(categories) { cat ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    searchViewModel.moveSelectedToCategory(cat)
+                                    showBulkMoveDialog = false
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(14.dp)
+                                        .clip(CircleShape)
+                                        .background(cat.composeColor)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(cat.name, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showBulkMoveDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Bulk Copy to Category Dialog
+    if (showBulkCopyDialog) {
+        AlertDialog(
+            onDismissRequest = { showBulkCopyDialog = false },
+            title = { Text("Copy ${uiState.selectedUris.size} Selected Screenshots") },
+            text = {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(categories) { cat ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    searchViewModel.copySelectedToCategory(cat)
+                                    showBulkCopyDialog = false
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(14.dp)
+                                        .clip(CircleShape)
+                                        .background(cat.composeColor)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(cat.name, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showBulkCopyDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Bulk Delete Confirmation Dialog
+    if (showBulkDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showBulkDeleteDialog = false },
+            title = { Text("Delete ${uiState.selectedUris.size} Screenshots") },
+            text = { Text("Are you sure you want to delete ${uiState.selectedUris.size} selected screenshot(s) from storage?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        searchViewModel.deleteSelectedScreenshots()
+                        showBulkDeleteDialog = false
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Delete All")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBulkDeleteDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Single Move to Category Dialog
     screenshotForMoveCategory?.let { item ->
         AlertDialog(
             onDismissRequest = { screenshotForMoveCategory = null },
@@ -509,7 +761,7 @@ fun ScreenshotsScreen(
         )
     }
 
-    // Copy to Category Dialog
+    // Single Copy to Category Dialog
     screenshotForCopyCategory?.let { item ->
         AlertDialog(
             onDismissRequest = { screenshotForCopyCategory = null },
@@ -552,7 +804,7 @@ fun ScreenshotsScreen(
         )
     }
 
-    // Delete Confirmation
+    // Single Delete Confirmation
     screenshotToDelete?.let { item ->
         AlertDialog(
             onDismissRequest = { screenshotToDelete = null },
@@ -578,9 +830,13 @@ fun ScreenshotsScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ScreenshotCardItem(
     screenshot: ScreenshotUiModel,
+    isSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onToggleSelection: () -> Unit = {},
     onDetectText: () -> Unit,
     onViewImage: () -> Unit,
     onMove: () -> Unit,
@@ -600,19 +856,51 @@ fun ScreenshotCardItem(
         else -> Triple("Not Processed", Color(0xFFE65100), Color(0xFFFFF3E0))
     }
 
+    val cardModifier = if (isSelected) {
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(18.dp))
+            .combinedClickable(
+                onClick = {
+                    if (isSelectionMode) {
+                        onToggleSelection()
+                    } else {
+                        onViewImage()
+                    }
+                },
+                onLongClick = {
+                    onToggleSelection()
+                }
+            )
+    } else {
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .combinedClickable(
+                onClick = {
+                    if (isSelectionMode) {
+                        onToggleSelection()
+                    } else {
+                        onViewImage()
+                    }
+                },
+                onLongClick = {
+                    onToggleSelection()
+                }
+            )
+    }
+
     ElevatedCard(
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceContainerHigh
         ),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .clickable { onViewImage() }
+        modifier = cardModifier
     ) {
         Column {
-            // Image Preview with OCR Badge
+            // Image Preview with OCR Badge & Selection Checkbox
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -644,6 +932,27 @@ fun ScreenshotCardItem(
                         color = statusColor,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
+                }
+
+                // Selection Checkbox at Top-Right
+                if (isSelectionMode || isSelected) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                        modifier = Modifier
+                            .padding(6.dp)
+                            .align(Alignment.TopEnd)
+                            .size(30.dp)
+                    ) {
+                        Checkbox(
+                            checked = isSelected,
+                            onCheckedChange = { onToggleSelection() },
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = MaterialTheme.colorScheme.primary
+                            ),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 }
 
                 // Category pill at Bottom-Left if categorized
