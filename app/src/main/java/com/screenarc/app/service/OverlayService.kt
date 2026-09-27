@@ -103,12 +103,11 @@ class OverlayService : Service() {
                         }
                     }
                     is OverlayEvent.RefreshRequested -> {
-                        currentOverlayScreenshot?.let { item ->
-                            showFloatingOverlay(item)
-                        }
+                        // RefreshRequested is for in-app data screens (HomeScreen/HistoryScreen).
+                        // Do not re-display overlay here.
                     }
                     is OverlayEvent.OverlayClosed -> {
-                        removeOverlayView()
+                        removeOverlayView(clearCurrentScreenshot = true)
                     }
                     is OverlayEvent.ScreenshotsChanged -> {
                         // handle screenshots change
@@ -130,6 +129,7 @@ class OverlayService : Service() {
                 val colorHex = intent.getIntExtra(EXTRA_DEMO_COLOR, 0xFF6750A4.toInt())
                 serviceScope.launch {
                     val item = MediaStoreOrganizer.createSimulatedScreenshot(this@OverlayService, label, colorHex)
+                    screenshotObserver?.markProcessed(item.id, item.uri)
                     showFloatingOverlay(item)
                 }
             }
@@ -151,6 +151,7 @@ class OverlayService : Service() {
                             bitmapPreview = bitmap,
                             paletteColors = palette
                         )
+                        screenshotObserver?.markProcessed(item.id, item.uri)
                         showFloatingOverlay(item)
                     }
                 }
@@ -189,10 +190,16 @@ class OverlayService : Service() {
             return
         }
 
-        currentOverlayScreenshot = screenshot
+        // Prevent showing duplicate overlay if already active for this screenshot
+        val current = currentOverlayScreenshot
+        if (overlayComposeView != null && current != null && (current.id == screenshot.id || current.uri == screenshot.uri)) {
+            Log.d(TAG, "Overlay is already active for screenshot ${screenshot.id}, ignoring duplicate show")
+            return
+        }
 
-        // Remove existing overlay view if present
-        removeOverlayView()
+        // Remove existing overlay view if present without clearing the upcoming screenshot
+        removeOverlayView(clearCurrentScreenshot = false)
+        currentOverlayScreenshot = screenshot
 
         val layoutParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -227,8 +234,14 @@ class OverlayService : Service() {
                     onMoveToCategory = { category ->
                         handleMoveToCategory(screenshot, category)
                     },
+                    onDeleteScreenshot = {
+                        handleDeleteScreenshot(screenshot)
+                    },
+                    onShareScreenshot = {
+                        handleShareScreenshot(screenshot)
+                    },
                     onDismiss = {
-                        removeOverlayView()
+                        removeOverlayView(clearCurrentScreenshot = true)
                     },
                     onOpenSearch = {
                         val openAppIntent = Intent(this@OverlayService, MainActivity::class.java).apply {
@@ -236,6 +249,9 @@ class OverlayService : Service() {
                             putExtra(MainActivity.EXTRA_NAVIGATE_TAB, MainActivity.TAB_SEARCH)
                         }
                         startActivity(openAppIntent)
+                    },
+                    onStyleChanged = { newStyle ->
+                        settingsRepository.updateSettings { it.copy(arcDesignStyle = newStyle) }
                     }
                 )
             }
@@ -251,6 +267,10 @@ class OverlayService : Service() {
     }
 
     private fun handleMoveToCategory(screenshot: ScreenshotItem, category: CategoryUiModel) {
+        screenshotObserver?.markProcessed(screenshot.id, screenshot.uri)
+        currentOverlayScreenshot = null
+        removeOverlayView(clearCurrentScreenshot = true)
+
         serviceScope.launch {
             val screenshotUi = com.screenarc.app.model.ScreenshotUiModel(
                 id = screenshot.id,
@@ -262,7 +282,8 @@ class OverlayService : Service() {
                 mimeType = screenshot.mimeType
             )
             val result = screenshotRepository.moveToCategory(screenshotUi, category)
-            result.onSuccess {
+            result.onSuccess { newUri ->
+                screenshotObserver?.markProcessed(screenshot.id, newUri)
                 Log.d(TAG, "Successfully moved screenshot to ${category.name}")
             }.onFailure { err ->
                 Log.e(TAG, "Failed moving screenshot: ${err.message}", err)
@@ -271,7 +292,50 @@ class OverlayService : Service() {
         }
     }
 
-    private fun removeOverlayView() {
+    private fun handleDeleteScreenshot(screenshot: ScreenshotItem) {
+        screenshotObserver?.markProcessed(screenshot.id, screenshot.uri)
+        currentOverlayScreenshot = null
+        removeOverlayView(clearCurrentScreenshot = true)
+
+        serviceScope.launch {
+            val screenshotUi = com.screenarc.app.model.ScreenshotUiModel(
+                id = screenshot.id,
+                uri = screenshot.uri.toString(),
+                displayName = screenshot.displayName,
+                dateAdded = screenshot.dateAdded,
+                size = screenshot.size,
+                relativePath = screenshot.relativePath,
+                mimeType = screenshot.mimeType
+            )
+            val result = screenshotRepository.deleteScreenshot(screenshotUi)
+            result.onSuccess {
+                Toast.makeText(this@OverlayService, "Screenshot deleted", Toast.LENGTH_SHORT).show()
+            }.onFailure { err ->
+                Log.e(TAG, "Failed deleting screenshot: ${err.message}", err)
+                Toast.makeText(this@OverlayService, "Error deleting screenshot: ${err.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun handleShareScreenshot(screenshot: ScreenshotItem) {
+        removeOverlayView(clearCurrentScreenshot = true)
+        try {
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = screenshot.mimeType.ifEmpty { "image/png" }
+                putExtra(Intent.EXTRA_STREAM, screenshot.uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val chooser = Intent.createChooser(shareIntent, "Share Screenshot").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(chooser)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed sharing screenshot: ${e.message}", e)
+            Toast.makeText(this@OverlayService, "Could not share screenshot: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun removeOverlayView(clearCurrentScreenshot: Boolean = true) {
         overlayComposeView?.let { view ->
             try {
                 windowManager?.removeView(view)
@@ -281,7 +345,9 @@ class OverlayService : Service() {
             }
             overlayComposeView = null
         }
-        currentOverlayScreenshot = null
+        if (clearCurrentScreenshot) {
+            currentOverlayScreenshot = null
+        }
     }
 
     private fun buildForegroundNotification(): Notification {

@@ -25,8 +25,14 @@ class ScreenshotObserver(
     private val onScreenshotDetected: (ScreenshotItem) -> Unit
 ) : ContentObserver(Handler(Looper.getMainLooper())) {
 
-    private val lastProcessedId = AtomicLong(-1L)
+    private val processedIds = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
+    private val processedUris = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     private var debounceJob: Job? = null
+
+    fun markProcessed(id: Long, uri: Uri? = null) {
+        processedIds.add(id)
+        uri?.let { processedUris.add(it.toString()) }
+    }
 
     override fun onChange(selfChange: Boolean, uri: Uri?) {
         super.onChange(selfChange, uri)
@@ -41,14 +47,26 @@ class ScreenshotObserver(
     }
 
     private suspend fun checkLatestScreenshot() {
-        val projection = arrayOf(
-            MediaStore.Images.Media._ID,
-            MediaStore.Images.Media.DISPLAY_NAME,
-            MediaStore.Images.Media.DATE_ADDED,
-            MediaStore.Images.Media.SIZE,
-            MediaStore.Images.Media.MIME_TYPE,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Images.Media.RELATIVE_PATH else MediaStore.Images.Media.DATA
-        )
+        val projection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            arrayOf(
+                MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DISPLAY_NAME,
+                MediaStore.Images.Media.DATE_ADDED,
+                MediaStore.Images.Media.SIZE,
+                MediaStore.Images.Media.MIME_TYPE,
+                MediaStore.Images.Media.RELATIVE_PATH,
+                MediaStore.Images.Media.IS_PENDING
+            )
+        } else {
+            arrayOf(
+                MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DISPLAY_NAME,
+                MediaStore.Images.Media.DATE_ADDED,
+                MediaStore.Images.Media.SIZE,
+                MediaStore.Images.Media.MIME_TYPE,
+                MediaStore.Images.Media.DATA
+            )
+        }
 
         val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
         val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -79,6 +97,14 @@ class ScreenshotObserver(
                         it.getColumnIndexOrThrow(MediaStore.Images.Media.DATA)
                     }
 
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        val isPendingIndex = it.getColumnIndex(MediaStore.Images.Media.IS_PENDING)
+                        if (isPendingIndex != -1 && it.getInt(isPendingIndex) == 1) {
+                            Log.d(TAG, "Screenshot is still pending/writing, skipping")
+                            return
+                        }
+                    }
+
                     val id = it.getLong(idColumn)
                     val name = it.getString(nameColumn) ?: ""
                     val dateAdded = it.getLong(dateColumn)
@@ -86,20 +112,37 @@ class ScreenshotObserver(
                     val mime = it.getString(mimeColumn) ?: "image/png"
                     val path = it.getString(pathColumn) ?: ""
 
-                    // Check if it's a new item we haven't processed yet
-                    if (id == lastProcessedId.get()) {
+                    // Check if already processed
+                    val contentUri = ContentUris.withAppendedId(collection, id)
+                    if (processedIds.contains(id) || processedUris.contains(contentUri.toString())) {
                         return
                     }
 
-                    // Verify if it's a screenshot:
+                    // Verify if it's in an already categorized subfolder
+                    val normalizedPath = path.replace('\\', '/').trim('/')
+                    val isCategorizedSubfolder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        normalizedPath.startsWith("Pictures/Screenshots/", ignoreCase = true) &&
+                                normalizedPath.length > "Pictures/Screenshots/".length
+                    } else {
+                        val file = java.io.File(path)
+                        val parentName = file.parentFile?.name ?: ""
+                        parentName != "Screenshots" && path.contains("Screenshots", ignoreCase = true)
+                    }
+
+                    if (isCategorizedSubfolder) {
+                        Log.d(TAG, "Ignoring screenshot in categorized subfolder: $path")
+                        markProcessed(id, contentUri)
+                        return
+                    }
+
+                    // Verify if it's a screenshot
                     val currentTimeSec = System.currentTimeMillis() / 1000
                     val isRecent = (currentTimeSec - dateAdded) < 35 // within last 35 seconds
                     val isScreenshotPath = path.contains("Screenshots", ignoreCase = true)
                     val isScreenshotName = name.contains("Screenshot", ignoreCase = true)
 
                     if (isRecent && (isScreenshotPath || isScreenshotName)) {
-                        lastProcessedId.set(id)
-                        val contentUri = ContentUris.withAppendedId(collection, id)
+                        markProcessed(id, contentUri)
                         Log.d(TAG, "Confirmed new screenshot: $name at $contentUri")
 
                         // Load preview bitmap & extract dynamic palette

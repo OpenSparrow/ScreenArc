@@ -24,7 +24,8 @@ data class AppSettings(
     val autoExpandOnCapture: Boolean = true,
     val playSoundOnDrop: Boolean = false,
     val ocrProcessingMode: OcrProcessingMode = OcrProcessingMode.ASK_BEFORE_PROCESSING,
-    val ocrLanguage: OcrLanguage = OcrLanguage.DEVANAGARI
+    val ocrLanguage: OcrLanguage = OcrLanguage.DEVANAGARI,
+    val arcDesignStyle: com.screenarc.app.model.ArcDesignStyle = com.screenarc.app.model.ArcDesignStyle.ORBIT
 )
 
 class AppSettingsRepository(context: Context) {
@@ -44,6 +45,13 @@ class AppSettingsRepository(context: Context) {
         val langId = prefs.getString("ocr_language", OcrLanguage.DEVANAGARI.id)
         val ocrLang = OcrLanguage.fromId(langId, OcrLanguage.DEVANAGARI)
 
+        val styleName = prefs.getString("arc_design_style", com.screenarc.app.model.ArcDesignStyle.ORBIT.name)
+        val arcStyle = try {
+            com.screenarc.app.model.ArcDesignStyle.valueOf(styleName ?: com.screenarc.app.model.ArcDesignStyle.ORBIT.name)
+        } catch (e: Exception) {
+            com.screenarc.app.model.ArcDesignStyle.ORBIT
+        }
+
         return AppSettings(
             isServiceEnabled = prefs.getBoolean("is_service_enabled", false),
             bubbleSizeDp = prefs.getInt("bubble_size_dp", 64),
@@ -54,7 +62,8 @@ class AppSettingsRepository(context: Context) {
             autoExpandOnCapture = prefs.getBoolean("auto_expand_capture", true),
             playSoundOnDrop = prefs.getBoolean("play_sound_drop", false),
             ocrProcessingMode = ocrMode,
-            ocrLanguage = ocrLang
+            ocrLanguage = ocrLang,
+            arcDesignStyle = arcStyle
         )
     }
 
@@ -71,6 +80,7 @@ class AppSettingsRepository(context: Context) {
             putBoolean("play_sound_drop", updated.playSoundOnDrop)
             putString("ocr_processing_mode", updated.ocrProcessingMode.name)
             putString("ocr_language", updated.ocrLanguage.id)
+            putString("arc_design_style", updated.arcDesignStyle.name)
         }.apply()
         _settings.value = updated
     }

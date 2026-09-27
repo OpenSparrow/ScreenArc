@@ -386,10 +386,14 @@ object MediaStoreOrganizer {
             savedUri = Uri.parse("content://media/external/images/media/simulated_${timestamp}")
         }
 
+        val realId = savedUri?.let { uri ->
+            try { ContentUris.parseId(uri) } catch (e: Exception) { null }
+        } ?: timestamp
+
         val palette = PaletteExtractor.extractColors(bitmap)
 
         ScreenshotItem(
-            id = timestamp,
+            id = realId,
             uri = savedUri,
             displayName = fileName,
             dateAdded = timestamp / 1000,

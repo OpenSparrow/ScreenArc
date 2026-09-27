@@ -20,6 +20,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -45,9 +46,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.CircularProgressIndicator
@@ -86,16 +87,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.screenarc.app.MainActivity
 import com.screenarc.app.data.AppSettings
+import com.screenarc.app.model.ArcDesignStyle
 import com.screenarc.app.model.CategoryUiModel
 import com.screenarc.app.model.ScreenshotItem
 import com.screenarc.app.ui.theme.ScreenArcTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.PI
-import kotlin.math.cos
 import kotlin.math.roundToInt
-import kotlin.math.sin
-import kotlin.math.sqrt
 
 @Composable
 fun FloatingOverlayView(
@@ -103,8 +101,11 @@ fun FloatingOverlayView(
     categories: List<CategoryUiModel>,
     settings: AppSettings,
     onMoveToCategory: (CategoryUiModel) -> Unit,
+    onDeleteScreenshot: () -> Unit,
+    onShareScreenshot: () -> Unit,
     onDismiss: () -> Unit,
     onOpenSearch: () -> Unit,
+    onStyleChanged: ((ArcDesignStyle) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -112,11 +113,17 @@ fun FloatingOverlayView(
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
 
+    // Active design style (Orbit, Fan Arc, or Segmented Dial)
+    var currentArcStyle by remember { mutableStateOf(settings.arcDesignStyle) }
+
     // UI state
     var isExpanded by remember { mutableStateOf(settings.autoExpandOnCapture) }
     var isDismissing by remember { mutableStateOf(false) }
+    var isDeleting by remember { mutableStateOf(false) }
     var successCategory by remember { mutableStateOf<CategoryUiModel?>(null) }
     var hoveredCategory by remember { mutableStateOf<CategoryUiModel?>(null) }
+    var isDeleteHovered by remember { mutableStateOf(false) }
+    var isShareHovered by remember { mutableStateOf(false) }
 
     // Drag offset
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
@@ -154,8 +161,8 @@ fun FloatingOverlayView(
     var remainingSeconds by remember { mutableStateOf(settings.autoDismissSeconds) }
     var timerProgress by remember { mutableFloatStateOf(1.0f) }
 
-    LaunchedEffect(isDragging, isDismissing, successCategory) {
-        if (isDragging || isDismissing || successCategory != null) return@LaunchedEffect
+    LaunchedEffect(isDragging, isDismissing, successCategory, isDeleting) {
+        if (isDragging || isDismissing || successCategory != null || isDeleting) return@LaunchedEffect
         val totalMillis = settings.autoDismissSeconds * 1000L
         val interval = 50L
         var elapsed = 0L
@@ -172,37 +179,15 @@ fun FloatingOverlayView(
         onDismiss()
     }
 
-    // Check hit test for categories during drag in radial mode
-    fun checkRadialHoverCategory(currentDragOffset: Offset): CategoryUiModel? {
-        val total = categories.size
-        val angleStep = if (total > 1) (2 * PI / total).toFloat() else 0f
-        val startAngle = -PI.toFloat() / 2f
-
-        categories.forEachIndexed { index, category ->
-            val angle = startAngle + index * angleStep
-            val targetX = arcRadiusPx * cos(angle)
-            val targetY = arcRadiusPx * sin(angle)
-
-            val dx = currentDragOffset.x - targetX
-            val dy = currentDragOffset.y - targetY
-            val distance = sqrt(dx * dx + dy * dy)
-
-            if (distance <= hitThresholdPx) {
-                return category
-            }
-        }
-        return null
-    }
-
     // Exit animation wrapper
     val exitScale by animateFloatAsState(
-        targetValue = if (isDismissing) 0.0f else 1.0f,
+        targetValue = if (isDismissing) 0.0f else if (isDeleting) 0.1f else 1.0f,
         animationSpec = tween(280, easing = FastOutSlowInEasing),
         label = "ExitScale"
     )
 
     val exitAlpha by animateFloatAsState(
-        targetValue = if (isDismissing) 0.0f else 1.0f,
+        targetValue = if (isDismissing || isDeleting) 0.0f else 1.0f,
         animationSpec = tween(230, easing = LinearEasing),
         label = "ExitAlpha"
     )
@@ -241,7 +226,7 @@ fun FloatingOverlayView(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
                     ) {
-                        if (!isDismissing) {
+                        if (!isDismissing && !isDeleting) {
                             coroutineScope.launch {
                                 isDismissing = true
                                 delay(220)
@@ -251,7 +236,7 @@ fun FloatingOverlayView(
                     }
             )
 
-            // Category targets layout: Radial arc if <= 8 categories, otherwise adaptive layout
+            // Category targets layout: Redesigned Radial Arc or Adaptive tray
             if (!useAdaptiveTray) {
                 ArcMenuLayout(
                     categories = categories,
@@ -261,15 +246,41 @@ fun FloatingOverlayView(
                     paletteColors = screenshot.paletteColors,
                     dynamicPaletteEnabled = settings.dynamicPaletteEnabled,
                     hoveredCategoryId = hoveredCategory?.id,
+                    isDeleteHovered = isDeleteHovered,
+                    isShareHovered = isShareHovered,
+                    arcDesignStyle = currentArcStyle,
                     onCategoryClick = { category ->
-                        if (isDismissing) return@ArcMenuLayout
+                        if (isDismissing || isDeleting) return@ArcMenuLayout
                         successCategory = category
                         triggerHapticFeedback(context, HapticType.DROP)
                         coroutineScope.launch {
                             delay(350)
                             onMoveToCategory(category)
                             isDismissing = true
-                            delay(220)
+                            delay(200)
+                            onDismiss()
+                        }
+                    },
+                    onDeleteClick = {
+                        if (isDismissing || isDeleting) return@ArcMenuLayout
+                        isDeleting = true
+                        triggerHapticFeedback(context, HapticType.DROP)
+                        coroutineScope.launch {
+                            delay(350)
+                            onDeleteScreenshot()
+                            isDismissing = true
+                            delay(200)
+                            onDismiss()
+                        }
+                    },
+                    onShareClick = {
+                        if (isDismissing || isDeleting) return@ArcMenuLayout
+                        triggerHapticFeedback(context, HapticType.DROP)
+                        coroutineScope.launch {
+                            delay(150)
+                            onShareScreenshot()
+                            isDismissing = true
+                            delay(200)
                             onDismiss()
                         }
                     }
@@ -291,14 +302,14 @@ fun FloatingOverlayView(
                         isDragging = isDragging,
                         highlightedCategoryId = hoveredCategory?.id,
                         onCategoryDrop = { category ->
-                            if (isDismissing) return@AdaptiveCategoryDropTargets
+                            if (isDismissing || isDeleting) return@AdaptiveCategoryDropTargets
                             successCategory = category
                             triggerHapticFeedback(context, HapticType.DROP)
                             coroutineScope.launch {
                                 delay(350)
                                 onMoveToCategory(category)
                                 isDismissing = true
-                                delay(220)
+                                delay(200)
                                 onDismiss()
                             }
                         },
@@ -311,7 +322,7 @@ fun FloatingOverlayView(
 
             // Central Bubble & Drag Item
             val bubbleElevation by animateDpAsState(
-                targetValue = if (isDragging) 14.dp else 6.dp,
+                targetValue = if (isDragging) 16.dp else 6.dp,
                 animationSpec = tween(150),
                 label = "BubbleElevation"
             )
@@ -320,9 +331,12 @@ fun FloatingOverlayView(
 
             val bubbleBorderColor by animateColorAsState(
                 targetValue = when {
+                    isDeleting -> Color(0xFFE53935)
                     successCategory != null -> Color(0xFF4CAF50)
+                    isDeleteHovered -> Color(0xFFE53935)
+                    isShareHovered -> Color(0xFF29B6F6)
                     currentHovered != null -> {
-                        if (settings.dynamicPaletteEnabled) screenshot.paletteColors.vibrant else MaterialTheme.colorScheme.primary
+                        if (settings.dynamicPaletteEnabled) screenshot.paletteColors.vibrant else currentHovered.composeColor
                     }
                     isDragging -> MaterialTheme.colorScheme.primary
                     else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
@@ -330,6 +344,10 @@ fun FloatingOverlayView(
                 animationSpec = tween(150),
                 label = "BubbleBorderColor"
             )
+
+            val radialLayout = remember(categories, arcRadiusPx, currentArcStyle) {
+                RadialMenuGeometry.calculateLayout(categories, arcRadiusPx, currentArcStyle)
+            }
 
             Box(
                 modifier = Modifier
@@ -350,34 +368,69 @@ fun FloatingOverlayView(
                                 dragOffsetY += dragAmount.y
 
                                 if (!useAdaptiveTray) {
-                                    val newHovered = checkRadialHoverCategory(Offset(dragOffsetX, dragOffsetY))
-                                    if (newHovered != hoveredCategory) {
-                                        if (newHovered != null) {
-                                            triggerHapticFeedback(context, HapticType.ENTER)
-                                        } else if (hoveredCategory != null) {
-                                            triggerHapticFeedback(context, HapticType.LEAVE)
-                                        }
-                                        hoveredCategory = newHovered
+                                    val hoverTarget = RadialMenuGeometry.findHoverTarget(
+                                        Offset(dragOffsetX, dragOffsetY),
+                                        radialLayout,
+                                        hitThresholdPx
+                                    )
+
+                                    val newHoveredCat = (hoverTarget as? HoverTarget.Category)?.category
+                                    val newIsDelete = hoverTarget is HoverTarget.Delete
+                                    val newIsShare = hoverTarget is HoverTarget.Share
+
+                                    if (newIsDelete != isDeleteHovered) {
+                                        isDeleteHovered = newIsDelete
+                                        if (newIsDelete) triggerHapticFeedback(context, HapticType.WARNING)
+                                    }
+                                    if (newIsShare != isShareHovered) {
+                                        isShareHovered = newIsShare
+                                        if (newIsShare) triggerHapticFeedback(context, HapticType.ENTER)
+                                    }
+                                    if (newHoveredCat != hoveredCategory) {
+                                        if (newHoveredCat != null) triggerHapticFeedback(context, HapticType.ENTER)
+                                        else if (hoveredCategory != null) triggerHapticFeedback(context, HapticType.LEAVE)
+                                        hoveredCategory = newHoveredCat
                                     }
                                 }
                             },
                             onDragEnd = {
                                 isDragging = false
-                                val target = hoveredCategory
-                                if (target != null) {
+                                if (isDeleteHovered) {
+                                    isDeleting = true
+                                    triggerHapticFeedback(context, HapticType.DROP)
+                                    coroutineScope.launch {
+                                        delay(350)
+                                        onDeleteScreenshot()
+                                        isDismissing = true
+                                        delay(200)
+                                        onDismiss()
+                                    }
+                                } else if (isShareHovered) {
+                                    triggerHapticFeedback(context, HapticType.DROP)
+                                    coroutineScope.launch {
+                                        delay(150)
+                                        onShareScreenshot()
+                                        isDismissing = true
+                                        delay(200)
+                                        onDismiss()
+                                    }
+                                } else if (hoveredCategory != null) {
+                                    val target = hoveredCategory!!
                                     successCategory = target
                                     triggerHapticFeedback(context, HapticType.DROP)
                                     coroutineScope.launch {
-                                        delay(400)
+                                        delay(350)
                                         onMoveToCategory(target)
                                         isDismissing = true
-                                        delay(220)
+                                        delay(200)
                                         onDismiss()
                                     }
                                 } else {
                                     dragOffsetX = 0f
                                     dragOffsetY = 0f
                                     hoveredCategory = null
+                                    isDeleteHovered = false
+                                    isShareHovered = false
                                 }
                             },
                             onDragCancel = {
@@ -385,13 +438,15 @@ fun FloatingOverlayView(
                                 dragOffsetX = 0f
                                 dragOffsetY = 0f
                                 hoveredCategory = null
+                                isDeleteHovered = false
+                                isShareHovered = false
                             }
                         )
                     },
                 contentAlignment = Alignment.Center
             ) {
                 // Auto-dismiss circular timer ring
-                if (!isDragging && successCategory == null) {
+                if (!isDragging && successCategory == null && !isDeleting) {
                     CircularProgressIndicator(
                         progress = { timerProgress },
                         modifier = Modifier.size(bubbleSize + 16.dp),
@@ -421,7 +476,7 @@ fun FloatingOverlayView(
                         modifier = Modifier
                             .fillMaxSize()
                             .border(
-                                width = if (isDragging || successCategory != null) 3.dp else 2.dp,
+                                width = if (isDragging || successCategory != null || isDeleteHovered || isDeleting) 3.2.dp else 2.dp,
                                 color = bubbleBorderColor,
                                 shape = CircleShape
                             ),
@@ -471,8 +526,29 @@ fun FloatingOverlayView(
                             }
                         }
 
+                        // Delete shred overlay
+                        AnimatedVisibility(
+                            visible = isDeleting,
+                            enter = scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn(),
+                            exit = scaleOut() + fadeOut()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0xCCE53935)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Deleted successfully",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+                        }
+
                         // Drag Handle hint
-                        if (isExpanded && !isDragging && successCategory == null) {
+                        if (isExpanded && !isDragging && successCategory == null && !isDeleting) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -491,7 +567,7 @@ fun FloatingOverlayView(
                 }
 
                 // Quick dismiss 'X' button
-                if (isExpanded && !isDragging && successCategory == null) {
+                if (isExpanded && !isDragging && successCategory == null && !isDeleting) {
                     Surface(
                         modifier = Modifier
                             .offset(x = (bubbleSize.value / 2).dp - 4.dp, y = -(bubbleSize.value / 2).dp + 4.dp)
@@ -520,12 +596,13 @@ fun FloatingOverlayView(
                 }
             }
 
-            // Bottom Actions & Quick Search Action Pill
+            // Bottom Actions & Intuitive Arc Design Switcher
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // Success banner
                 AnimatedVisibility(
@@ -561,16 +638,97 @@ fun FloatingOverlayView(
                     }
                 }
 
-                // Drag instruction & Open Search shortcut (Section 4 requirement: Open Search action in overlay)
+                // Delete feedback banner
                 AnimatedVisibility(
-                    visible = isExpanded && !isDragging && successCategory == null,
+                    visible = isDeleting,
+                    enter = fadeIn() + scaleIn(),
+                    exit = fadeOut() + scaleOut()
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shadowElevation = 8.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Deleting screenshot...",
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
+
+                // Interactive Arc Design Switcher Pill (Orbit ✦ | Fan ⌓ | Dial 🝯)
+                if (isExpanded && !isDragging && successCategory == null && !isDeleting && !useAdaptiveTray) {
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f),
+                        shadowElevation = 6.dp,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            ArcDesignStyle.values().forEach { style ->
+                                val isSelected = currentArcStyle == style
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .clickable {
+                                            currentArcStyle = style
+                                            onStyleChanged?.invoke(style)
+                                            triggerHapticFeedback(context, HapticType.ENTER)
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = when (style) {
+                                                ArcDesignStyle.ORBIT -> "✦ Orbit"
+                                                ArcDesignStyle.FAN -> "⌓ Fan"
+                                                ArcDesignStyle.DIAL -> "🝯 Dial"
+                                            },
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                            ),
+                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Drag instruction & Open Search shortcut
+                AnimatedVisibility(
+                    visible = isExpanded && !isDragging && successCategory == null && !isDeleting,
                     enter = fadeIn(),
                     exit = fadeOut()
                 ) {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(top = 8.dp)
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Surface(
                             shape = RoundedCornerShape(16.dp),
@@ -589,7 +747,7 @@ fun FloatingOverlayView(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Drag or tap category",
+                                    text = "Drag to Category, Delete, or Share",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

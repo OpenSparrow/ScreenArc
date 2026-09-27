@@ -394,7 +394,8 @@ fun CategoryDropTargetItem(
 enum class HapticType {
     ENTER,
     LEAVE,
-    DROP
+    DROP,
+    WARNING
 }
 
 fun triggerHapticFeedback(context: Context, type: HapticType) {
@@ -406,6 +407,7 @@ fun triggerHapticFeedback(context: Context, type: HapticType) {
                 HapticType.ENTER -> vibrator?.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK))
                 HapticType.LEAVE -> vibrator?.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK))
                 HapticType.DROP -> vibrator?.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK))
+                HapticType.WARNING -> vibrator?.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_DOUBLE_CLICK))
             }
         } else {
             @Suppress("DEPRECATION")
@@ -415,10 +417,11 @@ fun triggerHapticFeedback(context: Context, type: HapticType) {
                     HapticType.ENTER -> vibrator?.vibrate(VibrationEffect.createOneShot(25, VibrationEffect.DEFAULT_AMPLITUDE))
                     HapticType.LEAVE -> vibrator?.vibrate(VibrationEffect.createOneShot(10, VibrationEffect.DEFAULT_AMPLITUDE / 2))
                     HapticType.DROP -> vibrator?.vibrate(VibrationEffect.createOneShot(45, VibrationEffect.DEFAULT_AMPLITUDE))
+                    HapticType.WARNING -> vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 35, 50, 45), -1))
                 }
             } else {
                 @Suppress("DEPRECATION")
-                vibrator?.vibrate(30)
+                vibrator?.vibrate(50)
             }
         }
     } catch (e: Exception) {

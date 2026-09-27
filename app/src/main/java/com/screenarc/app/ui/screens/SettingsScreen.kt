@@ -713,6 +713,71 @@ fun SettingsScreen(
                         valueRange = 4f..25f,
                         steps = 6
                     )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Arc Design Pattern Selector
+                    Text(
+                        text = "Radial Arc Design Pattern",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                    Text(
+                        text = "Choose your preferred layout geometry, guide visuals, and ergonomics",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        com.screenarc.app.model.ArcDesignStyle.values().forEach { style ->
+                            val isSelected = settings.arcDesignStyle == style
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .clickable {
+                                        settingsRepo.updateSettings { it.copy(arcDesignStyle = style) }
+                                    }
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(vertical = 12.dp, horizontal = 6.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = when (style) {
+                                            com.screenarc.app.model.ArcDesignStyle.ORBIT -> "✦ Orbit"
+                                            com.screenarc.app.model.ArcDesignStyle.FAN -> "⌓ Fan"
+                                            com.screenarc.app.model.ArcDesignStyle.DIAL -> "🝯 Dial"
+                                        },
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                        ),
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = when (style) {
+                                            com.screenarc.app.model.ArcDesignStyle.ORBIT -> "360° Ring"
+                                            com.screenarc.app.model.ArcDesignStyle.FAN -> "180° Fan"
+                                            com.screenarc.app.model.ArcDesignStyle.DIAL -> "Sectors"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
