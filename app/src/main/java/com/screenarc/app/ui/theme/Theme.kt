@@ -2,6 +2,8 @@ package com.screenarc.app.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -10,6 +12,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import com.screenarc.app.data.UiDesignStyle
@@ -426,15 +429,62 @@ fun ScreenArcTheme(
         baseColorScheme
     }
 
+    val animatedColorScheme = animateColorScheme(effectiveColorScheme)
+
     CompositionLocalProvider(
         LocalIsGlassmorphic provides isGlassmorphic,
         LocalUiDesignStyle provides uiDesignStyle,
-        androidx.compose.material3.LocalContentColor provides effectiveColorScheme.onSurface
+        androidx.compose.material3.LocalContentColor provides animatedColorScheme.onSurface
     ) {
         MaterialTheme(
-            colorScheme = effectiveColorScheme,
+            colorScheme = animatedColorScheme,
             typography = Typography,
             content = content
         )
     }
+}
+
+@Composable
+private fun animateColorScheme(target: ColorScheme): ColorScheme {
+    val spec = tween<Color>(durationMillis = 300)
+    val primary by animateColorAsState(target.primary, spec, label = "primary")
+    val onPrimary by animateColorAsState(target.onPrimary, spec, label = "onPrimary")
+    val primaryContainer by animateColorAsState(target.primaryContainer, spec, label = "primaryContainer")
+    val onPrimaryContainer by animateColorAsState(target.onPrimaryContainer, spec, label = "onPrimaryContainer")
+    val secondary by animateColorAsState(target.secondary, spec, label = "secondary")
+    val onSecondary by animateColorAsState(target.onSecondary, spec, label = "onSecondary")
+    val secondaryContainer by animateColorAsState(target.secondaryContainer, spec, label = "secondaryContainer")
+    val onSecondaryContainer by animateColorAsState(target.onSecondaryContainer, spec, label = "onSecondaryContainer")
+    val background by animateColorAsState(target.background, spec, label = "background")
+    val onBackground by animateColorAsState(target.onBackground, spec, label = "onBackground")
+    val surface by animateColorAsState(target.surface, spec, label = "surface")
+    val onSurface by animateColorAsState(target.onSurface, spec, label = "onSurface")
+    val surfaceVariant by animateColorAsState(target.surfaceVariant, spec, label = "surfaceVariant")
+    val onSurfaceVariant by animateColorAsState(target.onSurfaceVariant, spec, label = "onSurfaceVariant")
+    val surfaceContainer by animateColorAsState(target.surfaceContainer, spec, label = "surfaceContainer")
+    val surfaceContainerHigh by animateColorAsState(target.surfaceContainerHigh, spec, label = "surfaceContainerHigh")
+    val surfaceContainerHighest by animateColorAsState(target.surfaceContainerHighest, spec, label = "surfaceContainerHighest")
+    val outline by animateColorAsState(target.outline, spec, label = "outline")
+    val outlineVariant by animateColorAsState(target.outlineVariant, spec, label = "outlineVariant")
+    return target.copy(
+        primary = primary,
+        onPrimary = onPrimary,
+        primaryContainer = primaryContainer,
+        onPrimaryContainer = onPrimaryContainer,
+        secondary = secondary,
+        onSecondary = onSecondary,
+        secondaryContainer = secondaryContainer,
+        onSecondaryContainer = onSecondaryContainer,
+        background = background,
+        onBackground = onBackground,
+        surface = surface,
+        onSurface = onSurface,
+        surfaceVariant = surfaceVariant,
+        onSurfaceVariant = onSurfaceVariant,
+        surfaceContainer = surfaceContainer,
+        surfaceContainerHigh = surfaceContainerHigh,
+        surfaceContainerHighest = surfaceContainerHighest,
+        outline = outline,
+        outlineVariant = outlineVariant
+    )
 }

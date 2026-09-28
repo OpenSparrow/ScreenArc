@@ -17,6 +17,8 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.UnfoldLess
 import androidx.compose.material.icons.filled.UnfoldMore
@@ -26,6 +28,7 @@ import com.screenarc.app.data.ConfigurationBackupManager
 import com.screenarc.app.data.UiDesignStyle
 import com.screenarc.app.model.ThemeCategory
 import com.screenarc.app.ui.theme.GlassElevatedCard
+import com.screenarc.app.ui.theme.ThemeStateManager
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -1221,7 +1224,8 @@ fun SettingsScreen(
 
         // 5. Visual Themes & Expressive Palettes Card (DropSauce Inspired)
         item {
-            var selectedThemeCategory by remember { mutableStateOf(ThemeCategory.ALL) }
+            val themeStateManager = remember(settingsRepo) { ThemeStateManager(settingsRepo) }
+            val themeUiState by themeStateManager.themeState.collectAsState()
             val themesArrowRotation by animateFloatAsState(
                 targetValue = if (themesExpanded) 180f else 0f,
                 animationSpec = tween(300),
@@ -1341,7 +1345,7 @@ fun SettingsScreen(
 
                             Spacer(modifier = Modifier.height(14.dp))
 
-                            // Theme Category Filter Row
+                            // Theme Category Filter Row (4 tabs: All, Light, Dark, Glassmorphism)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1350,41 +1354,68 @@ fun SettingsScreen(
                                     ThemeCategory.ALL to "All",
                                     ThemeCategory.LIGHT to "Light",
                                     ThemeCategory.DARK to "Dark",
-                                    ThemeCategory.GLASS to "Glass"
+                                    ThemeCategory.GLASS to "Glassmorphism"
                                 ).forEach { (cat, label) ->
-                                    val isCatSelected = selectedThemeCategory == cat
+                                    val isTabHighlighted = themeUiState.isTabHighlighted(cat)
+                                    val tabBgColor by animateColorAsState(
+                                        targetValue = if (isTabHighlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                                        animationSpec = tween(250),
+                                        label = "TabBg_${cat.name}"
+                                    )
+                                    val tabContentColor by animateColorAsState(
+                                        targetValue = if (isTabHighlighted) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        animationSpec = tween(250),
+                                        label = "TabContent_${cat.name}"
+                                    )
+                                    val tabBorderColor by animateColorAsState(
+                                        targetValue = if (isTabHighlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                                        animationSpec = tween(250),
+                                        label = "TabBorder_${cat.name}"
+                                    )
+                                    val tabElevation by animateDpAsState(
+                                        targetValue = if (isTabHighlighted) 4.dp else 0.dp,
+                                        animationSpec = tween(250),
+                                        label = "TabElevation_${cat.name}"
+                                    )
+
                                     Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = if (isCatSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = tabBgColor,
+                                        contentColor = tabContentColor,
+                                        shadowElevation = tabElevation,
+                                        tonalElevation = tabElevation,
+                                        border = BorderStroke(if (isTabHighlighted) 1.5.dp else 1.dp, tabBorderColor),
                                         modifier = Modifier
                                             .weight(1f)
-                                            .clickable { selectedThemeCategory = cat }
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable {
+                                                themeStateManager.selectCategory(cat)
+                                            }
                                     ) {
-                                        Text(
-                                            text = label,
-                                            style = MaterialTheme.typography.labelMedium.copy(
-                                                fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Normal
-                                            ),
-                                            color = if (isCatSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.padding(vertical = 6.dp),
-                                            textAlign = TextAlign.Center
-                                        )
+                                        Column(
+                                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 2.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            Text(
+                                                text = label,
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontWeight = if (isTabHighlighted) FontWeight.Bold else FontWeight.Normal,
+                                                    fontSize = if (label.length > 7) 10.sp else 11.5.sp
+                                                ),
+                                                color = tabContentColor,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
                                     }
                                 }
                             }
 
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            val filteredPresets = remember(selectedThemeCategory) {
-                                AppThemePreset.values().filter { preset ->
-                                    when (selectedThemeCategory) {
-                                        ThemeCategory.ALL -> true
-                                        ThemeCategory.LIGHT -> preset.isLightOnly
-                                        ThemeCategory.DARK -> preset.isDarkOnly || (!preset.isLightOnly && !preset.isGlass)
-                                        ThemeCategory.GLASS -> preset.isGlass
-                                    }
-                                }
-                            }
+                            val filteredPresets = themeUiState.filteredPresets
 
                             // Vertically scrollable preset list with max height
                             Column(
@@ -1395,7 +1426,7 @@ fun SettingsScreen(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 filteredPresets.forEach { preset ->
-                                    val isSelected = settings.themePreset == preset
+                                    val isSelected = themeUiState.activeTheme == preset
                                     Surface(
                                         shape = RoundedCornerShape(14.dp),
                                         color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
@@ -1404,7 +1435,7 @@ fun SettingsScreen(
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(14.dp))
                                             .clickable {
-                                                settingsRepo.updateSettings { it.copy(themePreset = preset) }
+                                                themeStateManager.selectTheme(preset)
                                             }
                                     ) {
                                         Row(
@@ -1419,7 +1450,7 @@ fun SettingsScreen(
                                                 RadioButton(
                                                     selected = isSelected,
                                                     onClick = {
-                                                        settingsRepo.updateSettings { it.copy(themePreset = preset) }
+                                                        themeStateManager.selectTheme(preset)
                                                     }
                                                 )
                                                 Spacer(modifier = Modifier.width(8.dp))

@@ -3,11 +3,19 @@ package com.screenarc.app.model
 /**
  * Visual Theme Presets inspired by Material 3 Expressive and DropSauce styling.
  */
-enum class ThemeCategory {
-    ALL,
-    LIGHT,
-    DARK,
-    GLASS
+enum class ThemeCategory(val displayName: String) {
+    ALL("All"),
+    LIGHT("Light"),
+    DARK("Dark"),
+    GLASS("Glassmorphism");
+
+    fun getPresets(): List<AppThemePreset> = AppThemePreset.values().filter { it.matchesCategory(this) }
+
+    companion object {
+        fun fromName(name: String?, default: ThemeCategory = ALL): ThemeCategory {
+            return values().find { it.name.equals(name, ignoreCase = true) } ?: default
+        }
+    }
 }
 
 enum class AppThemePreset(
@@ -127,6 +135,19 @@ enum class AppThemePreset(
         surfaceColorHex = 0xFF120E1E,
         isDarkOnly = true
     );
+
+    fun matchesCategory(category: ThemeCategory): Boolean = when (category) {
+        ThemeCategory.ALL -> true
+        ThemeCategory.LIGHT -> isLightOnly
+        ThemeCategory.DARK -> isDarkOnly || (!isLightOnly && !isGlass)
+        ThemeCategory.GLASS -> isGlass
+    }
+
+    fun primaryCategory(): ThemeCategory = when {
+        isGlass -> ThemeCategory.GLASS
+        isLightOnly -> ThemeCategory.LIGHT
+        else -> ThemeCategory.DARK
+    }
 
     companion object {
         fun fromId(id: String?, default: AppThemePreset = DYNAMIC_SYSTEM): AppThemePreset {

@@ -420,66 +420,66 @@ fun HomeScreen(
             }
         }
 
-        // Active Categories Row
+        // Active Categories Section
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Active Categories (${categories.size})",
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "Manage",
-                    style = MaterialTheme.typography.labelLarge.copy(color = MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.clickable { onNavigateToCategories() }
-                )
-            }
-        }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Active Categories (${categories.size})",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Manage",
+                        style = MaterialTheme.typography.labelLarge.copy(color = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.clickable { onNavigateToCategories() }
+                    )
+                }
 
-        item {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(vertical = 4.dp)
-            ) {
-                items(categories, key = { it.id }) { category ->
-                    Surface(
-                        shape = RoundedCornerShape(18.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        border = BorderStroke(1.dp, category.composeColor.copy(alpha = 0.4f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(vertical = 2.dp)
+                ) {
+                    items(categories, key = { it.id }) { category ->
+                        Surface(
+                            shape = RoundedCornerShape(18.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            border = BorderStroke(1.dp, category.composeColor.copy(alpha = 0.4f))
                         ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = category.composeColor,
-                                modifier = Modifier.size(22.dp)
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = category.getIcon(),
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(13.dp)
+                                Surface(
+                                    shape = CircleShape,
+                                    color = category.composeColor,
+                                    modifier = Modifier.size(22.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = category.getIcon(),
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = category.name,
+                                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                    Text(
+                                        text = "Pictures/Screenshots/${category.subfolderName}",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column {
-                                Text(
-                                    text = category.name,
-                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-                                )
-                                Text(
-                                    text = "Pictures/Screenshots/${category.subfolderName}",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
                             }
                         }
                     }

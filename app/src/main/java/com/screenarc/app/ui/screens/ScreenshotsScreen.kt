@@ -13,6 +13,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -136,11 +138,11 @@ fun ScreenshotsScreen(
         ) {
             // Search Bar with Debouncing, Clear Button & Count
             Surface(
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(20.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp, bottom = 8.dp)
+                    .padding(top = 8.dp, bottom = 4.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -152,31 +154,48 @@ fun ScreenshotsScreen(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Search",
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(20.dp)
                     )
 
                     Spacer(modifier = Modifier.width(10.dp))
 
-                    OutlinedTextField(
-                        value = query.text,
-                        onValueChange = { searchViewModel.updateSearchText(it) },
-                        placeholder = { Text("Search by filename, OCR text, category...") },
-                        singleLine = true,
-                        colors = androidx.compose.material3.TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent
-                        ),
-                        modifier = Modifier.weight(1f)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(vertical = 4.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (query.text.isEmpty()) {
+                            Text(
+                                text = "Search by filename, OCR text, category...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        BasicTextField(
+                            value = query.text,
+                            onValueChange = { searchViewModel.updateSearchText(it) },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                color = MaterialTheme.colorScheme.onSurface
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
 
                     if (query.text.isNotEmpty()) {
-                        IconButton(onClick = { searchViewModel.clearSearch() }) {
+                        IconButton(
+                            onClick = { searchViewModel.clearSearch() },
+                            modifier = Modifier.size(36.dp)
+                        ) {
                             Icon(
                                 imageVector = Icons.Default.Clear,
                                 contentDescription = "Clear search",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
@@ -185,12 +204,14 @@ fun ScreenshotsScreen(
                     IconButton(
                         onClick = {
                             searchViewModel.setSelectionMode(!uiState.isSelectionMode)
-                        }
+                        },
+                        modifier = Modifier.size(36.dp)
                     ) {
                         Icon(
-                            imageVector = if (uiState.isSelectionMode) Icons.Default.Checklist else Icons.Default.Checklist,
+                            imageVector = Icons.Default.Checklist,
                             contentDescription = "Select mode",
-                            tint = if (uiState.isSelectionMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = if (uiState.isSelectionMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
@@ -199,7 +220,7 @@ fun ScreenshotsScreen(
             // Category Filter Chips
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(bottom = 6.dp)
+                modifier = Modifier.padding(top = 2.dp, bottom = 4.dp)
             ) {
                 item {
                     FilterChip(
