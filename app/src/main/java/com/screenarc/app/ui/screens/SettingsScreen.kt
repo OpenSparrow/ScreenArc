@@ -15,9 +15,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.UnfoldLess
+import androidx.compose.material.icons.filled.UnfoldMore
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.draw.rotate
 import com.screenarc.app.data.ConfigurationBackupManager
 import com.screenarc.app.data.UiDesignStyle
@@ -156,6 +159,36 @@ fun SettingsScreen(
     var showPasteJsonDialog by remember { mutableStateOf(false) }
     var pastedJsonText by remember { mutableStateOf("") }
 
+    // Persistent Tab & Section Expanded States (survives re-renders, navigation, and page refreshes)
+    var rulesExpanded by rememberSaveable { mutableStateOf(settingsRepo.isSectionExpanded("rules", true)) }
+    var backupExpanded by rememberSaveable { mutableStateOf(settingsRepo.isSectionExpanded("backup", false)) }
+    var ocrExpanded by rememberSaveable { mutableStateOf(settingsRepo.isSectionExpanded("ocr", true)) }
+    var bulkOcrExpanded by rememberSaveable { mutableStateOf(settingsRepo.isSectionExpanded("bulk_ocr", true)) }
+    var overlayExpanded by rememberSaveable { mutableStateOf(settingsRepo.isSectionExpanded("overlay", false)) }
+    var themesExpanded by rememberSaveable { mutableStateOf(settingsRepo.isSectionExpanded("themes", false)) }
+    var motionExpanded by rememberSaveable { mutableStateOf(settingsRepo.isSectionExpanded("motion", false)) }
+    var reliabilityExpanded by rememberSaveable { mutableStateOf(settingsRepo.isSectionExpanded("reliability", false)) }
+
+    val allExpanded = rulesExpanded && backupExpanded && ocrExpanded && bulkOcrExpanded &&
+            overlayExpanded && themesExpanded && motionExpanded && reliabilityExpanded
+
+    val toggleAllTabs: () -> Unit = {
+        val targetState = !allExpanded
+        rulesExpanded = targetState
+        backupExpanded = targetState
+        ocrExpanded = targetState
+        bulkOcrExpanded = targetState
+        overlayExpanded = targetState
+        themesExpanded = targetState
+        motionExpanded = targetState
+        reliabilityExpanded = targetState
+
+        settingsRepo.setAllSectionsExpanded(
+            listOf("rules", "backup", "ocr", "bulk_ocr", "overlay", "themes", "motion", "reliability"),
+            targetState
+        )
+    }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -164,21 +197,49 @@ fun SettingsScreen(
         contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp)
     ) {
         item {
-            Text(
-                text = "Preferences & Rules",
-                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
-            )
-            Text(
-                text = "Configure auto-categorization rules, OCR language models, overlay behavior, and styling",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Preferences & Rules",
+                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Configure auto-categorization rules, OCR language models, overlay behavior, and styling",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                FilledTonalButton(
+                    onClick = toggleAllTabs,
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Icon(
+                        imageVector = if (allExpanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
+                        contentDescription = if (allExpanded) "Collapse All Configurations" else "Expand All Configurations",
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (allExpanded) "Collapse All" else "Expand All",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
         }
 
         // 1. Rules-Based Category Allocation Card
         searchViewModel?.let { vm ->
             item {
-                var rulesExpanded by remember { mutableStateOf(true) }
                 val rulesArrowRotation by animateFloatAsState(
                     targetValue = if (rulesExpanded) 180f else 0f,
                     animationSpec = tween(300),
@@ -190,7 +251,10 @@ fun SettingsScreen(
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().clickable { rulesExpanded = !rulesExpanded },
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                rulesExpanded = !rulesExpanded
+                                settingsRepo.setSectionExpanded("rules", rulesExpanded)
+                            },
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -240,7 +304,7 @@ fun SettingsScreen(
 
                                 Spacer(modifier = Modifier.height(12.dp))
 
-                                // Header action: Run All Active Rules Button
+                                // Header action: Run All Active Rules Button + Adjacent Global Expand/Collapse Toggle
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -252,20 +316,39 @@ fun SettingsScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
 
-                                    Button(
-                                        onClick = { vm.runAllActiveRules() },
-                                        enabled = uiState?.isRuleRunning != true && rules.any { it.isEnabled },
-                                        shape = RoundedCornerShape(12.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        if (uiState?.isRuleRunning == true) {
-                                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Running...", fontSize = 11.sp)
-                                        } else {
-                                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Run All Active Rules", fontSize = 11.sp)
+                                        Button(
+                                            onClick = { vm.runAllActiveRules() },
+                                            enabled = uiState?.isRuleRunning != true && rules.any { it.isEnabled },
+                                            shape = RoundedCornerShape(12.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                        ) {
+                                            if (uiState?.isRuleRunning == true) {
+                                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Running...", fontSize = 11.sp)
+                                            } else {
+                                                Icon(Icons.Default.PlayArrow, contentDescription = "Run Rules", modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Run All Active Rules", fontSize = 11.sp)
+                                            }
+                                        }
+
+                                        // Global Expand / Collapse All Toggle Button immediately adjacent to Run Rules
+                                        FilledTonalIconButton(
+                                            onClick = toggleAllTabs,
+                                            modifier = Modifier.size(36.dp),
+                                            shape = RoundedCornerShape(10.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (allExpanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
+                                                contentDescription = if (allExpanded) "Collapse All Configurations" else "Expand All Configurations",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
                                         }
                                     }
                                 }
@@ -315,7 +398,6 @@ fun SettingsScreen(
         // 2. Backup & Restore Configurations Card (Rules & Categories)
         item {
             val context = LocalContext.current
-            var backupExpanded by remember { mutableStateOf(false) }
             val backupArrowRotation by animateFloatAsState(
                 targetValue = if (backupExpanded) 180f else 0f,
                 animationSpec = tween(300),
@@ -341,7 +423,10 @@ fun SettingsScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { backupExpanded = !backupExpanded },
+                            .clickable {
+                                backupExpanded = !backupExpanded
+                                settingsRepo.setSectionExpanded("backup", backupExpanded)
+                            },
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -463,7 +548,6 @@ fun SettingsScreen(
 
         // 3. On-Device OCR Settings Card (Multilingual & Script Support)
         item {
-            var ocrExpanded by remember { mutableStateOf(true) }
             val ocrArrowRotation by animateFloatAsState(
                 targetValue = if (ocrExpanded) 180f else 0f,
                 animationSpec = tween(300),
@@ -475,7 +559,10 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().clickable { ocrExpanded = !ocrExpanded },
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            ocrExpanded = !ocrExpanded
+                            settingsRepo.setSectionExpanded("ocr", ocrExpanded)
+                        },
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -733,7 +820,6 @@ fun SettingsScreen(
         // 3. Bulk OCR Processing Card
         searchViewModel?.let { vm ->
             item {
-                var bulkOcrExpanded by remember { mutableStateOf(true) }
                 val bulkOcrArrowRotation by animateFloatAsState(
                     targetValue = if (bulkOcrExpanded) 180f else 0f,
                     animationSpec = tween(300),
@@ -745,7 +831,10 @@ fun SettingsScreen(
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().clickable { bulkOcrExpanded = !bulkOcrExpanded },
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                bulkOcrExpanded = !bulkOcrExpanded
+                                settingsRepo.setSectionExpanded("bulk_ocr", bulkOcrExpanded)
+                            },
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -947,7 +1036,6 @@ fun SettingsScreen(
 
         // 4. Overlay Appearance Settings Card
         item {
-            var overlayExpanded by remember { mutableStateOf(false) }
             val overlayArrowRotation by animateFloatAsState(
                 targetValue = if (overlayExpanded) 180f else 0f,
                 animationSpec = tween(300),
@@ -959,7 +1047,10 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().clickable { overlayExpanded = !overlayExpanded },
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            overlayExpanded = !overlayExpanded
+                            settingsRepo.setSectionExpanded("overlay", overlayExpanded)
+                        },
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1130,7 +1221,6 @@ fun SettingsScreen(
 
         // 5. Visual Themes & Expressive Palettes Card (DropSauce Inspired)
         item {
-            var themesExpanded by remember { mutableStateOf(false) }
             var selectedThemeCategory by remember { mutableStateOf(ThemeCategory.ALL) }
             val themesArrowRotation by animateFloatAsState(
                 targetValue = if (themesExpanded) 180f else 0f,
@@ -1143,7 +1233,10 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().clickable { themesExpanded = !themesExpanded },
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            themesExpanded = !themesExpanded
+                            settingsRepo.setSectionExpanded("themes", themesExpanded)
+                        },
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1427,7 +1520,6 @@ fun SettingsScreen(
 
         // 5. Behavior & Motion Card
         item {
-            var motionExpanded by remember { mutableStateOf(false) }
             val motionArrowRotation by animateFloatAsState(
                 targetValue = if (motionExpanded) 180f else 0f,
                 animationSpec = tween(300),
@@ -1439,7 +1531,10 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().clickable { motionExpanded = !motionExpanded },
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            motionExpanded = !motionExpanded
+                            settingsRepo.setSectionExpanded("motion", motionExpanded)
+                        },
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1571,7 +1666,6 @@ fun SettingsScreen(
                 } else true
             }
 
-            var reliabilityExpanded by remember { mutableStateOf(false) }
             val reliabilityArrowRotation by animateFloatAsState(
                 targetValue = if (reliabilityExpanded) 180f else 0f,
                 animationSpec = tween(300),
@@ -1584,7 +1678,10 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().clickable { reliabilityExpanded = !reliabilityExpanded },
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            reliabilityExpanded = !reliabilityExpanded
+                            settingsRepo.setSectionExpanded("reliability", reliabilityExpanded)
+                        },
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {

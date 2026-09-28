@@ -121,4 +121,23 @@ class AppSettingsRepository(context: Context) {
         }.apply()
         _settings.value = finalUpdated
     }
+
+    /**
+     * Tab/Section expanded state persistence across re-renders and app sessions.
+     */
+    fun isSectionExpanded(sectionKey: String, defaultValue: Boolean = false): Boolean {
+        return prefs.getBoolean("section_expanded_$sectionKey", defaultValue)
+    }
+
+    fun setSectionExpanded(sectionKey: String, isExpanded: Boolean) {
+        prefs.edit().putBoolean("section_expanded_$sectionKey", isExpanded).apply()
+    }
+
+    fun setAllSectionsExpanded(sectionKeys: List<String>, isExpanded: Boolean) {
+        prefs.edit().apply {
+            sectionKeys.forEach { key ->
+                putBoolean("section_expanded_$key", isExpanded)
+            }
+        }.apply()
+    }
 }

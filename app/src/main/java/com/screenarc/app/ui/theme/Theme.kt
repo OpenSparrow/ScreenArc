@@ -390,13 +390,17 @@ fun ScreenArcTheme(
     }
 
     // When glassmorphism is active, ensure surface & container layers are translucent with specular highlights
+    // and explicitly enforce high-contrast typography tokens across Dark and Light modes.
     val effectiveColorScheme = if (isGlassmorphic) {
         val isEffectiveDark = darkTheme || themePreset.isDarkOnly
         if (isEffectiveDark) {
             baseColorScheme.copy(
                 background = Color(0xFF0C0916),
+                onBackground = Color(0xFFF2EFF8),
                 surface = Color(0x35231B38),
+                onSurface = Color(0xFFF2EFF8),
                 surfaceVariant = Color(0x45342754),
+                onSurfaceVariant = Color(0xFFDDD7E8),
                 surfaceContainer = Color(0x42281E46),
                 surfaceContainerHigh = Color(0x5436285C),
                 surfaceContainerHighest = Color(0x66443372),
@@ -406,8 +410,11 @@ fun ScreenArcTheme(
         } else {
             baseColorScheme.copy(
                 background = Color(0xFFEBF3F8),
+                onBackground = Color(0xFF141C24),
                 surface = Color(0x99FFFFFF),
+                onSurface = Color(0xFF141C24),
                 surfaceVariant = Color(0x73D8E8F0),
+                onSurfaceVariant = Color(0xFF38454F),
                 surfaceContainer = Color(0xB3FFFFFF),
                 surfaceContainerHigh = Color(0xCCFFFFFF),
                 surfaceContainerHighest = Color(0xDDFFFFFF),
@@ -421,7 +428,8 @@ fun ScreenArcTheme(
 
     CompositionLocalProvider(
         LocalIsGlassmorphic provides isGlassmorphic,
-        LocalUiDesignStyle provides uiDesignStyle
+        LocalUiDesignStyle provides uiDesignStyle,
+        androidx.compose.material3.LocalContentColor provides effectiveColorScheme.onSurface
     ) {
         MaterialTheme(
             colorScheme = effectiveColorScheme,
