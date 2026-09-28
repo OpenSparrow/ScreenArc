@@ -61,6 +61,12 @@ import com.screenarc.app.ui.screens.HistoryScreen
 import com.screenarc.app.ui.screens.HomeScreen
 import com.screenarc.app.ui.screens.ScreenshotsScreen
 import com.screenarc.app.ui.screens.SettingsScreen
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import com.screenarc.app.ui.theme.GlassmorphicBackdrop
+import com.screenarc.app.ui.theme.LocalIsGlassmorphic
 import com.screenarc.app.ui.theme.ScreenArcTheme
 import com.screenarc.app.viewmodel.SearchViewModel
 
@@ -105,72 +111,102 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val settings by settingsRepository.settings.collectAsState()
-            ScreenArcTheme(themePreset = settings.themePreset) {
+            ScreenArcTheme(
+                themePreset = settings.themePreset,
+                uiDesignStyle = settings.uiDesignStyle
+            ) {
+                val isGlass = LocalIsGlassmorphic.current
+                val isDark = isSystemInDarkTheme() || settings.themePreset.isDarkOnly
                 var selectedTab by remember { selectedTabState }
 
-                Scaffold(
-                    topBar = {
-                        CenterAlignedTopAppBar(
-                            title = {
-                                Text(
-                                    text = "ScreenArc",
-                                    style = MaterialTheme.typography.titleLarge.copy(
-                                        fontWeight = FontWeight.Bold
+                GlassmorphicBackdrop(
+                    isGlassmorphic = isGlass,
+                    isDark = isDark
+                ) {
+                    Scaffold(
+                        containerColor = if (isGlass) Color.Transparent else MaterialTheme.colorScheme.background,
+                        topBar = {
+                            CenterAlignedTopAppBar(
+                                title = {
+                                    Text(
+                                        text = "ScreenArc",
+                                        style = MaterialTheme.typography.titleLarge.copy(
+                                            fontWeight = FontWeight.Bold
+                                        )
                                     )
-                                )
-                            },
-                            actions = {
-                                IconButton(
-                                    onClick = {
-                                        if (Settings.canDrawOverlays(this@MainActivity)) {
-                                            OverlayService.triggerDemo(
-                                                this@MainActivity,
-                                                "Quick Mockup Arc",
-                                                0xFF6750A4.toInt()
-                                            )
-                                        } else {
-                                            val intent = Intent(
-                                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                                Uri.parse("package:$packageName")
-                                            )
-                                            startActivity(intent)
+                                },
+                                actions = {
+                                    IconButton(
+                                        onClick = {
+                                            if (Settings.canDrawOverlays(this@MainActivity)) {
+                                                OverlayService.triggerDemo(
+                                                    this@MainActivity,
+                                                    "Quick Mockup Arc",
+                                                    0xFF6750A4.toInt()
+                                                )
+                                            } else {
+                                                val intent = Intent(
+                                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                                    Uri.parse("package:$packageName")
+                                                )
+                                                startActivity(intent)
+                                            }
                                         }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = "Test Overlay",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
                                     }
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = "Test Overlay",
-                                        tint = MaterialTheme.colorScheme.primary
+                                },
+                                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                                    containerColor = if (isGlass) {
+                                        if (isDark) Color(0x35120E22) else Color(0x75FFFFFF)
+                                    } else MaterialTheme.colorScheme.surface
+                                ),
+                                modifier = if (isGlass) Modifier.drawBehind {
+                                    drawLine(
+                                        color = Color.White.copy(alpha = if (isDark) 0.18f else 0.45f),
+                                        start = Offset(0f, size.height),
+                                        end = Offset(size.width, size.height),
+                                        strokeWidth = 1.dp.toPx()
+                                    )
+                                } else Modifier
+                            )
+                        },
+                        bottomBar = {
+                            NavigationBar(
+                                containerColor = if (isGlass) {
+                                    if (isDark) Color(0x40120E22) else Color(0x85FFFFFF)
+                                } else MaterialTheme.colorScheme.surfaceContainerHigh,
+                                modifier = if (isGlass) Modifier.drawBehind {
+                                    drawLine(
+                                        color = Color.White.copy(alpha = if (isDark) 0.22f else 0.50f),
+                                        start = Offset(0f, 0f),
+                                        end = Offset(size.width, 0f),
+                                        strokeWidth = 1.2.dp.toPx()
+                                    )
+                                } else Modifier
+                            ) {
+                                NavigationTab.values().forEach { tab ->
+                                    val isSelected = selectedTab == tab
+                                    NavigationBarItem(
+                                        selected = isSelected,
+                                        onClick = { selectedTab = tab },
+                                        icon = {
+                                            Icon(
+                                                imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
+                                                contentDescription = tab.title,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        },
+                                        label = { Text(tab.title) }
                                     )
                                 }
-                            },
-                            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                                containerColor = MaterialTheme.colorScheme.surface
-                            )
-                        )
-                    },
-                    bottomBar = {
-                        NavigationBar(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                        ) {
-                            NavigationTab.values().forEach { tab ->
-                                val isSelected = selectedTab == tab
-                                NavigationBarItem(
-                                    selected = isSelected,
-                                    onClick = { selectedTab = tab },
-                                    icon = {
-                                        Icon(
-                                            imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
-                                            contentDescription = tab.title,
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                    },
-                                    label = { Text(tab.title) }
-                                )
                             }
                         }
-                    }
-                ) { paddingValues ->
+                    ) { paddingValues ->
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -210,6 +246,7 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)

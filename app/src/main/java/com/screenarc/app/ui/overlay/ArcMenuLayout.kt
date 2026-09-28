@@ -47,8 +47,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import com.screenarc.app.ui.theme.LocalIsGlassmorphic
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -152,6 +154,7 @@ fun ArcMenuLayout(
         val primaryColor = MaterialTheme.colorScheme.primary
         val outlineColor = MaterialTheme.colorScheme.outline
         val errorColor = MaterialTheme.colorScheme.error
+        val isGlass = LocalIsGlassmorphic.current
 
         Box(
             modifier = modifier.fillMaxSize(),
@@ -383,7 +386,8 @@ fun ArcMenuLayout(
                     isHovered -> {
                         if (dynamicPaletteEnabled) paletteColors.vibrantLight else category.composeColor
                     }
-                    isSuggested -> category.composeColor.copy(alpha = 0.28f)
+                    isSuggested -> category.composeColor.copy(alpha = if (isGlass) 0.42f else 0.28f)
+                    isGlass -> Color(0xFF1E1730).copy(alpha = 0.58f)
                     dynamicPaletteEnabled -> category.composeColor.copy(alpha = 0.24f)
                     else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f)
                 }
@@ -402,6 +406,7 @@ fun ArcMenuLayout(
                 val targetBorderColor = when {
                     isHovered -> Color.White
                     isSuggested -> category.composeColor
+                    isGlass -> Color.White.copy(alpha = 0.50f)
                     else -> category.composeColor.copy(alpha = 0.65f)
                 }
 
@@ -424,6 +429,19 @@ fun ArcMenuLayout(
                                         colors = listOf(category.composeColor.copy(alpha = if (isHovered) 0.45f else 0.25f), Color.Transparent),
                                         radius = size.maxDimension * 0.85f
                                     )
+                                )
+                            }
+                        }
+                        .drawWithContent {
+                            drawContent()
+                            if (isGlass) {
+                                drawRoundRect(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(Color.White.copy(alpha = 0.35f), Color.Transparent),
+                                        startY = 0f,
+                                        endY = 12.dp.toPx()
+                                    ),
+                                    size = androidx.compose.ui.geometry.Size(size.width, 12.dp.toPx())
                                 )
                             }
                         }
@@ -552,11 +570,18 @@ fun ArcMenuLayout(
                             contentDescription = "More categories, tap or hover to expand all ${layout.overflowCategories.size + 5} categories"
                             stateDescription = if (isHovered) "Highlighted" else "Available"
                         },
-                    shape = RoundedCornerShape(22.dp),
-                    color = if (isHovered) primaryColor else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f),
+                    color = when {
+                        isHovered -> primaryColor
+                        isGlass -> Color(0xFF1E1730).copy(alpha = 0.58f)
+                        else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f)
+                    },
                     border = BorderStroke(
                         width = if (isHovered) 2.5.dp else 1.2.dp,
-                        color = if (isHovered) Color.White else primaryColor.copy(alpha = 0.65f)
+                        color = when {
+                            isHovered -> Color.White
+                            isGlass -> Color.White.copy(alpha = 0.50f)
+                            else -> primaryColor.copy(alpha = 0.65f)
+                        }
                     )
                 ) {
                     Row(
@@ -615,13 +640,21 @@ fun ArcMenuLayout(
             )
 
             val deleteContainerColor by animateColorAsState(
-                targetValue = if (isDeleteHovered) Color(0xFFE53935) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.90f),
+                targetValue = when {
+                    isDeleteHovered -> Color(0xFFE53935)
+                    isGlass -> Color(0xFF451515).copy(alpha = 0.60f)
+                    else -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.90f)
+                },
                 animationSpec = tween(180),
                 label = "DeleteContainerColor"
             )
 
-            val deleteContentColor = if (isDeleteHovered) Color.White else MaterialTheme.colorScheme.onErrorContainer
-            val deleteBorderColor = if (isDeleteHovered) Color.White else MaterialTheme.colorScheme.error.copy(alpha = 0.75f)
+            val deleteContentColor = if (isDeleteHovered) Color.White else if (isGlass) Color(0xFFFFB4AB) else MaterialTheme.colorScheme.onErrorContainer
+            val deleteBorderColor = when {
+                isDeleteHovered -> Color.White
+                isGlass -> Color(0xFFFFB4AB).copy(alpha = 0.50f)
+                else -> MaterialTheme.colorScheme.error.copy(alpha = 0.75f)
+            }
 
             Surface(
                 modifier = Modifier
@@ -726,13 +759,21 @@ fun ArcMenuLayout(
                 )
 
                 val shareContainerColor by animateColorAsState(
-                    targetValue = if (isShareHovered) primaryColor else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
+                    targetValue = when {
+                        isShareHovered -> primaryColor
+                        isGlass -> Color(0xFF1E1730).copy(alpha = 0.58f)
+                        else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f)
+                    },
                     animationSpec = tween(180),
                     label = "ShareContainerColor"
                 )
 
                 val shareContentColor = if (isShareHovered) Color.White else MaterialTheme.colorScheme.onSurface
-                val shareBorderColor = if (isShareHovered) Color.White else primaryColor.copy(alpha = 0.5f)
+                val shareBorderColor = when {
+                    isShareHovered -> Color.White
+                    isGlass -> Color.White.copy(alpha = 0.50f)
+                    else -> primaryColor.copy(alpha = 0.5f)
+                }
 
                 Surface(
                     modifier = Modifier

@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.rotate
 import com.screenarc.app.data.ConfigurationBackupManager
 import com.screenarc.app.data.UiDesignStyle
 import com.screenarc.app.model.ThemeCategory
+import com.screenarc.app.ui.theme.GlassElevatedCard
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -183,12 +184,9 @@ fun SettingsScreen(
                     animationSpec = tween(300),
                     label = "RulesArrow"
                 )
-                ElevatedCard(
+                GlassElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.elevatedCardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                    )
+                    shape = RoundedCornerShape(24.dp)
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
                         Row(
@@ -335,12 +333,9 @@ fun SettingsScreen(
                 }
             }
 
-            ElevatedCard(
+            GlassElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.elevatedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                )
+                shape = RoundedCornerShape(24.dp)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Row(
@@ -474,12 +469,9 @@ fun SettingsScreen(
                 animationSpec = tween(300),
                 label = "OcrArrow"
             )
-            ElevatedCard(
+            GlassElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.elevatedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                )
+                shape = RoundedCornerShape(24.dp)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Row(
@@ -747,12 +739,9 @@ fun SettingsScreen(
                     animationSpec = tween(300),
                     label = "BulkOcrArrow"
                 )
-                ElevatedCard(
+                GlassElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.elevatedCardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                    )
+                    shape = RoundedCornerShape(24.dp)
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
                         Row(
@@ -964,12 +953,9 @@ fun SettingsScreen(
                 animationSpec = tween(300),
                 label = "OverlayArrow"
             )
-            ElevatedCard(
+            GlassElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.elevatedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                )
+                shape = RoundedCornerShape(24.dp)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Row(
@@ -1151,12 +1137,9 @@ fun SettingsScreen(
                 animationSpec = tween(300),
                 label = "ThemesArrow"
             )
-            ElevatedCard(
+            GlassElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.elevatedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                )
+                shape = RoundedCornerShape(24.dp)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Row(
@@ -1450,12 +1433,9 @@ fun SettingsScreen(
                 animationSpec = tween(300),
                 label = "MotionArrow"
             )
-            ElevatedCard(
+            GlassElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.elevatedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                )
+                shape = RoundedCornerShape(24.dp)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Row(
@@ -1598,12 +1578,9 @@ fun SettingsScreen(
                 label = "ReliabilityArrow"
             )
 
-            ElevatedCard(
+            GlassElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.elevatedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                )
+                shape = RoundedCornerShape(24.dp)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Row(

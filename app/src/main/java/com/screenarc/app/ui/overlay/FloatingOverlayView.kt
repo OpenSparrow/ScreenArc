@@ -233,7 +233,10 @@ fun FloatingOverlayView(
         )
     }
 
-    ScreenArcTheme(themePreset = settings.themePreset) {
+    ScreenArcTheme(
+        themePreset = settings.themePreset,
+        uiDesignStyle = settings.uiDesignStyle
+    ) {
         BoxWithConstraints(
             modifier = modifier
                 .fillMaxSize()

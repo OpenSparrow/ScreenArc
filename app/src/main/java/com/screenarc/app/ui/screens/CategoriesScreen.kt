@@ -55,6 +55,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.screenarc.app.data.CategoryRepository
 import com.screenarc.app.model.CategoryUiModel
+import com.screenarc.app.ui.theme.GlassElevatedCard
+import com.screenarc.app.ui.theme.LocalIsGlassmorphic
 import kotlinx.coroutines.launch
 
 private val AVAILABLE_COLORS = listOf(
@@ -83,6 +85,7 @@ fun CategoriesScreen(
 ) {
     val categories by categoryRepo.categories.collectAsState()
     val scope = rememberCoroutineScope()
+    val isGlass = LocalIsGlassmorphic.current
 
     var showAddDialog by remember { mutableStateOf(false) }
     var categoryToEdit by remember { mutableStateOf<CategoryUiModel?>(null) }
@@ -91,6 +94,7 @@ fun CategoriesScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        containerColor = if (isGlass) Color.Transparent else MaterialTheme.colorScheme.background,
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showAddDialog = true },
@@ -136,9 +140,10 @@ fun CategoriesScreen(
             }
 
             items(categories, key = { it.id }) { category ->
-                ElevatedCard(
+                GlassElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp),
+                    cornerRadius = 20.dp,
                     colors = CardDefaults.elevatedCardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                     ),

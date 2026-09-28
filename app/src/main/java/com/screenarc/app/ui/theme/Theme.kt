@@ -9,8 +9,10 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import com.screenarc.app.data.UiDesignStyle
 import com.screenarc.app.model.AppThemePreset
 
 // Default Monet / Standard Schemas
@@ -310,61 +312,63 @@ private val PastelCreamColorScheme = lightColorScheme(
 
 // 9. Glassmorphism Frost Light
 private val GlassFrostLightColorScheme = lightColorScheme(
-    primary = Color(0xFF00677D),
+    primary = Color(0xFF007A99),
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFB3EBFF),
+    primaryContainer = Color(0x99B3EBFF),
     onPrimaryContainer = Color(0xFF001F27),
     secondary = Color(0xFF4B626A),
     onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFCEE7F0),
+    secondaryContainer = Color(0x88CEE7F0),
     onSecondaryContainer = Color(0xFF061E25),
     tertiary = Color(0xFF585C7E),
     onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFDFE0FF),
+    tertiaryContainer = Color(0x99DFE0FF),
     onTertiaryContainer = Color(0xFF151937),
-    background = Color(0xFFF0F7F9),
+    background = Color(0xFFEBF3F8),
     onBackground = Color(0xFF191C1D),
-    surface = Color(0xFFF7FBFD),
+    surface = Color(0x99FFFFFF),
     onSurface = Color(0xFF191C1D),
-    surfaceVariant = Color(0xFFDBE4E7),
+    surfaceVariant = Color(0x73D8E8F0),
     onSurfaceVariant = Color(0xFF3F484B),
-    outline = Color(0xFF6F797B),
-    surfaceContainerHigh = Color(0xFFE2EDF0)
+    outline = Color(0x80FFFFFF),
+    surfaceContainerHigh = Color(0xCCFFFFFF)
 )
 
 // 10. Glassmorphism Aurora Dark
 private val GlassAuroraDarkColorScheme = darkColorScheme(
     primary = Color(0xFFD0BCFF),
     onPrimary = Color(0xFF381E72),
-    primaryContainer = Color(0xFF4F378B),
+    primaryContainer = Color(0x664F378B),
     onPrimaryContainer = Color(0xFFEADDFF),
     secondary = Color(0xFFCCC2DC),
     onSecondary = Color(0xFF332D41),
-    secondaryContainer = Color(0xFF4A4458),
+    secondaryContainer = Color(0x554A4458),
     onSecondaryContainer = Color(0xFFE8DEF8),
     tertiary = Color(0xFFEFB8C8),
     onTertiary = Color(0xFF492532),
-    tertiaryContainer = Color(0xFF633B48),
+    tertiaryContainer = Color(0x66633B48),
     onTertiaryContainer = Color(0xFFFFD8E4),
-    background = Color(0xFF120E1E),
+    background = Color(0xFF0C0916),
     onBackground = Color(0xFFE6E1E5),
-    surface = Color(0xFF181326),
+    surface = Color(0x35231B38),
     onSurface = Color(0xFFE6E1E5),
-    surfaceVariant = Color(0xFF49454F),
+    surfaceVariant = Color(0x45342754),
     onSurfaceVariant = Color(0xFFCAC4D0),
-    outline = Color(0xFF938F99),
-    surfaceContainerHigh = Color(0xFF241C38)
+    outline = Color(0x66FFFFFF),
+    surfaceContainerHigh = Color(0x5436285C)
 )
 
 @Composable
 fun ScreenArcTheme(
     themePreset: AppThemePreset = AppThemePreset.DYNAMIC_SYSTEM,
+    uiDesignStyle: UiDesignStyle = UiDesignStyle.MATERIAL,
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
+    val isGlassmorphic = uiDesignStyle == UiDesignStyle.GLASSMORPHISM || themePreset.isGlass
 
-    val colorScheme: ColorScheme = when (themePreset) {
+    val baseColorScheme: ColorScheme = when (themePreset) {
         AppThemePreset.DYNAMIC_SYSTEM -> {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
@@ -385,9 +389,44 @@ fun ScreenArcTheme(
         AppThemePreset.CYBERPUNK_NEON -> CyberpunkNeonColorScheme
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content
-    )
+    // When glassmorphism is active, ensure surface & container layers are translucent with specular highlights
+    val effectiveColorScheme = if (isGlassmorphic) {
+        val isEffectiveDark = darkTheme || themePreset.isDarkOnly
+        if (isEffectiveDark) {
+            baseColorScheme.copy(
+                background = Color(0xFF0C0916),
+                surface = Color(0x35231B38),
+                surfaceVariant = Color(0x45342754),
+                surfaceContainer = Color(0x42281E46),
+                surfaceContainerHigh = Color(0x5436285C),
+                surfaceContainerHighest = Color(0x66443372),
+                outline = Color(0x66FFFFFF),
+                outlineVariant = Color(0x33FFFFFF)
+            )
+        } else {
+            baseColorScheme.copy(
+                background = Color(0xFFEBF3F8),
+                surface = Color(0x99FFFFFF),
+                surfaceVariant = Color(0x73D8E8F0),
+                surfaceContainer = Color(0xB3FFFFFF),
+                surfaceContainerHigh = Color(0xCCFFFFFF),
+                surfaceContainerHighest = Color(0xDDFFFFFF),
+                outline = Color(0x80FFFFFF),
+                outlineVariant = Color(0x4DFFFFFF)
+            )
+        }
+    } else {
+        baseColorScheme
+    }
+
+    CompositionLocalProvider(
+        LocalIsGlassmorphic provides isGlassmorphic,
+        LocalUiDesignStyle provides uiDesignStyle
+    ) {
+        MaterialTheme(
+            colorScheme = effectiveColorScheme,
+            typography = Typography,
+            content = content
+        )
+    }
 }

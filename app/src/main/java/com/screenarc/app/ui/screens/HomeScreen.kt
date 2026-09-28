@@ -58,6 +58,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import com.screenarc.app.ui.theme.GlassElevatedCard
+import com.screenarc.app.ui.theme.glassCard
+import com.screenarc.app.ui.theme.LocalIsGlassmorphic
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -136,6 +139,8 @@ fun HomeScreen(
         label = "PulseScale"
     )
 
+    val isGlass = LocalIsGlassmorphic.current
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -147,9 +152,10 @@ fun HomeScreen(
         item {
             Surface(
                 shape = RoundedCornerShape(22.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                color = if (isGlass) Color.White.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .glassCard(cornerRadius = 22.dp)
                     .clip(RoundedCornerShape(22.dp))
                     .clickable { onNavigateToSearch() }
             ) {
@@ -182,9 +188,10 @@ fun HomeScreen(
 
         // Hero / Service Status Card
         item {
-            ElevatedCard(
+            GlassElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(28.dp),
+                cornerRadius = 28.dp,
                 colors = CardDefaults.elevatedCardColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer
                 ),
@@ -313,9 +320,10 @@ fun HomeScreen(
 
         // Live Test & Quick Testing Section
         item {
-            ElevatedCard(
+            GlassElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
+                cornerRadius = 24.dp,
                 colors = CardDefaults.elevatedCardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 ),
@@ -490,10 +498,13 @@ fun HomeScreen(
 
         if (history.isEmpty()) {
             item {
-                Surface(
+                GlassElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh
+                    cornerRadius = 20.dp,
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    )
                 ) {
                     Column(
                         modifier = Modifier.padding(28.dp),
@@ -523,10 +534,13 @@ fun HomeScreen(
         } else {
             items(history.take(5)) { record ->
                 val dateFormat = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault())
-                Surface(
+                GlassElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh
+                    cornerRadius = 18.dp,
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    )
                 ) {
                     Row(
                         modifier = Modifier.padding(14.dp),

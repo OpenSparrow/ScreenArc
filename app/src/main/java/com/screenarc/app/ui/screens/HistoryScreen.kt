@@ -51,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -63,6 +64,9 @@ import coil.compose.AsyncImage
 import com.screenarc.app.data.CategoryRepository
 import com.screenarc.app.data.OrganizedHistoryRepository
 import com.screenarc.app.model.OrganizedRecord
+import com.screenarc.app.ui.theme.GlassElevatedCard
+import com.screenarc.app.ui.theme.LocalIsGlassmorphic
+import com.screenarc.app.ui.theme.glassCard
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -76,6 +80,7 @@ fun HistoryScreen(
     val context = LocalContext.current
     val history by historyRepo.history.collectAsState()
     val categories by categoryRepo.categories.collectAsState()
+    val isGlass = LocalIsGlassmorphic.current
 
     var selectedFilter by remember { mutableStateOf("All") }
     var selectedRecord by remember { mutableStateOf<OrganizedRecord?>(null) }
@@ -177,10 +182,13 @@ fun HistoryScreen(
 
         if (filteredList.isEmpty()) {
             item {
-                Surface(
+                GlassElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh
+                    cornerRadius = 20.dp,
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    )
                 ) {
                     Column(
                         modifier = Modifier.padding(32.dp),
@@ -212,11 +220,12 @@ fun HistoryScreen(
                 val dateFormat = remember { SimpleDateFormat("MMM dd, yyyy • HH:mm", Locale.getDefault()) }
                 val targetCategory = categories.find { it.name.equals(record.categoryName, ignoreCase = true) }
 
-                ElevatedCard(
+                GlassElevatedCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { selectedRecord = record },
                     shape = RoundedCornerShape(20.dp),
+                    cornerRadius = 20.dp,
                     colors = CardDefaults.elevatedCardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                     ),
@@ -387,10 +396,11 @@ fun HistoryScreen(
             Surface(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(16.dp),
+                    .padding(16.dp)
+                    .glassCard(cornerRadius = 28.dp),
                 shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 6.dp
+                color = if (isGlass) Color(0xFF141824).copy(alpha = 0.92f) else MaterialTheme.colorScheme.surface,
+                tonalElevation = if (isGlass) 0.dp else 6.dp
             ) {
                 Column(
                     modifier = Modifier
