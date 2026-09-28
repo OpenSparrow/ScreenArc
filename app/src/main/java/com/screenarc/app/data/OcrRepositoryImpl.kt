@@ -26,6 +26,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
@@ -43,8 +44,8 @@ class OcrRepositoryImpl(
     private val ocrDao = database.ocrDao()
     private val screenshotDao = database.screenshotDao()
 
-    // Bounded concurrency semaphore: max 2 simultaneous OCR jobs to maintain thermal & CPU balance
-    private val ocrSemaphore = Semaphore(2)
+    // Bounded concurrency semaphore: max 1 simultaneous OCR job to maintain thermal & CPU balance
+    private val ocrSemaphore = Semaphore(1)
     private var activeBatchJob: Job? = null
     private val isCancelled = AtomicBoolean(false)
 
@@ -341,6 +342,7 @@ class OcrRepositoryImpl(
                     failedCount = failed,
                     lastError = lastErr
                 )
+                kotlinx.coroutines.yield()
             }
         } finally {
             recognizer.close()

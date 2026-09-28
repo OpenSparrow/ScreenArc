@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 data class SearchUiState(
@@ -236,7 +237,7 @@ class SearchViewModel @JvmOverloads constructor(
     }
 
     fun runRule(ruleId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _uiState.value = _uiState.value.copy(isRuleRunning = true)
             val result = rulesRepository.runRule(
                 ruleId = ruleId,
@@ -252,7 +253,7 @@ class SearchViewModel @JvmOverloads constructor(
     }
 
     fun runAllActiveRules() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _uiState.value = _uiState.value.copy(isRuleRunning = true)
             val result = rulesRepository.runAllActiveRules(
                 screenshotRepository = screenshotRepository,
@@ -280,7 +281,7 @@ class SearchViewModel @JvmOverloads constructor(
     }
 
     fun runOcrForSearchResults() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _uiState.value = _uiState.value.copy(isOcrRunning = true)
             val results = searchResults.value
             var successCount = 0
@@ -298,7 +299,7 @@ class SearchViewModel @JvmOverloads constructor(
     }
 
     fun runOcrForUnprocessed() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _uiState.value = _uiState.value.copy(isOcrRunning = true)
             val batch = ocrRepository.recognizePendingScreenshots()
             _uiState.value = _uiState.value.copy(
@@ -309,7 +310,7 @@ class SearchViewModel @JvmOverloads constructor(
     }
 
     fun runAutoRulesForUncategorized() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _uiState.value = _uiState.value.copy(isOcrRunning = true)
             val result = rulesRepository.runAllActiveRules(screenshotRepository, categoryRepository, ocrRepository)
             _uiState.value = _uiState.value.copy(
@@ -320,7 +321,7 @@ class SearchViewModel @JvmOverloads constructor(
     }
 
     fun processAndIndexAllImages(forceReindex: Boolean = false, language: com.screenarc.app.ocr.OcrLanguage? = null) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _uiState.value = _uiState.value.copy(isOcrRunning = true)
             val progress = ocrRepository.processAndIndexAllImages(forceReindex, language)
             _uiState.value = _uiState.value.copy(

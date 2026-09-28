@@ -13,7 +13,10 @@ import android.os.IBinder
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.runtime.remember
@@ -254,6 +257,13 @@ class OverlayService : Service() {
     }
 
     fun showFloatingOverlay(screenshot: ScreenshotItem, suggestedCategoryId: Long? = null) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            Handler(Looper.getMainLooper()).post {
+                showFloatingOverlay(screenshot, suggestedCategoryId)
+            }
+            return
+        }
+
         if (!Settings.canDrawOverlays(this)) {
             Log.w(TAG, "Cannot draw overlay: SYSTEM_ALERT_WINDOW permission not granted")
             Toast.makeText(this, "ScreenArc: Overlay permission required", Toast.LENGTH_SHORT).show()
@@ -282,6 +292,7 @@ class OverlayService : Service() {
                 WindowManager.LayoutParams.TYPE_PHONE
             },
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                     WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT
@@ -293,6 +304,15 @@ class OverlayService : Service() {
             setViewTreeLifecycleOwner(overlayLifecycleOwner)
             setViewTreeSavedStateRegistryOwner(overlayLifecycleOwner)
             setViewTreeViewModelStoreOwner(overlayLifecycleOwner)
+
+            setOnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_OUTSIDE) {
+                    removeOverlayView(clearCurrentScreenshot = true)
+                    true
+                } else {
+                    false
+                }
+            }
 
             setContent {
                 val categories = categoryRepository.categories.value
@@ -450,17 +470,25 @@ class OverlayService : Service() {
     }
 
     private fun removeOverlayView(clearCurrentScreenshot: Boolean = true) {
-        overlayComposeView?.let { view ->
-            try {
-                windowManager?.removeView(view)
-                Log.d(TAG, "Removed FloatingOverlayView from WindowManager")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error removing overlay view: ${e.message}", e)
+        val removeAction = {
+            overlayComposeView?.let { view ->
+                try {
+                    windowManager?.removeView(view)
+                    Log.d(TAG, "Removed FloatingOverlayView from WindowManager")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error removing overlay view: ${e.message}", e)
+                }
+                overlayComposeView = null
             }
-            overlayComposeView = null
+            if (clearCurrentScreenshot) {
+                currentOverlayScreenshot = null
+            }
         }
-        if (clearCurrentScreenshot) {
-            currentOverlayScreenshot = null
+
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            removeAction()
+        } else {
+            Handler(Looper.getMainLooper()).post(removeAction)
         }
     }
 

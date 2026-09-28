@@ -2,11 +2,11 @@ package com.screenarc.app.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.screenarc.app.model.AppThemePreset
+import com.screenarc.app.ocr.OcrLanguage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-
-import com.screenarc.app.ocr.OcrLanguage
 
 enum class OcrProcessingMode {
     MANUAL_ONLY,
@@ -27,7 +27,8 @@ data class AppSettings(
     val ocrLanguage: OcrLanguage = OcrLanguage.DEVANAGARI,
     val arcDesignStyle: com.screenarc.app.model.ArcDesignStyle = com.screenarc.app.model.ArcDesignStyle.ORBIT,
     val autoOcrEnabled: Boolean = false,
-    val autoAssignRulesEnabled: Boolean = false
+    val autoAssignRulesEnabled: Boolean = false,
+    val themePreset: AppThemePreset = AppThemePreset.DYNAMIC_SYSTEM
 )
 
 class AppSettingsRepository(context: Context) {
@@ -54,6 +55,9 @@ class AppSettingsRepository(context: Context) {
             com.screenarc.app.model.ArcDesignStyle.ORBIT
         }
 
+        val themePresetId = prefs.getString("theme_preset", AppThemePreset.DYNAMIC_SYSTEM.id)
+        val themePreset = AppThemePreset.fromId(themePresetId, AppThemePreset.DYNAMIC_SYSTEM)
+
         val autoOcr = prefs.getBoolean("auto_ocr_enabled", false)
         val autoRules = prefs.getBoolean("auto_assign_rules_enabled", false)
 
@@ -70,14 +74,14 @@ class AppSettingsRepository(context: Context) {
             ocrLanguage = ocrLang,
             arcDesignStyle = arcStyle,
             autoOcrEnabled = autoOcr,
-            autoAssignRulesEnabled = if (autoOcr) autoRules else false
+            autoAssignRulesEnabled = if (autoOcr) autoRules else false,
+            themePreset = themePreset
         )
     }
 
     fun updateSettings(transform: (AppSettings) -> AppSettings) {
         val rawUpdated = transform(_settings.value)
         // Enforce dependency: if autoOcr is disabled, autoAssignRules must be disabled.
-        // If autoAssignRules is enabled, autoOcr must also be enabled.
         val finalUpdated = if (!rawUpdated.autoOcrEnabled) {
             rawUpdated.copy(autoAssignRulesEnabled = false)
         } else {
@@ -98,6 +102,7 @@ class AppSettingsRepository(context: Context) {
             putString("arc_design_style", finalUpdated.arcDesignStyle.name)
             putBoolean("auto_ocr_enabled", finalUpdated.autoOcrEnabled)
             putBoolean("auto_assign_rules_enabled", finalUpdated.autoAssignRulesEnabled)
+            putString("theme_preset", finalUpdated.themePreset.id)
         }.apply()
         _settings.value = finalUpdated
     }
