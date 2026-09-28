@@ -20,6 +20,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -43,6 +45,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -51,13 +54,18 @@ import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material.icons.filled.Undo
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -78,14 +86,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.screenarc.app.MainActivity
 import com.screenarc.app.data.AppSettings
 import com.screenarc.app.model.ArcDesignStyle
 import com.screenarc.app.model.CategoryUiModel
@@ -100,7 +109,10 @@ fun FloatingOverlayView(
     screenshot: ScreenshotItem,
     categories: List<CategoryUiModel>,
     settings: AppSettings,
+    suggestedCategoryId: Long? = null,
+    categoryUsageMap: Map<Long, Int> = emptyMap(),
     onMoveToCategory: (CategoryUiModel) -> Unit,
+    onUndoMove: ((CategoryUiModel) -> Unit)? = null,
     onDeleteScreenshot: () -> Unit,
     onShareScreenshot: () -> Unit,
     onDismiss: () -> Unit,
@@ -112,20 +124,30 @@ fun FloatingOverlayView(
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
+    val layoutDirection = LocalLayoutDirection.current
+    val isRtl = layoutDirection == LayoutDirection.Rtl
 
-    // Active design style (Orbit, Fan Arc, or Segmented Dial)
+    // Order categories by suggested category + frequency of usage
+    val orderedCategories = remember(categories, categoryUsageMap, suggestedCategoryId) {
+        RadialMenuGeometry.orderCategories(categories, categoryUsageMap, suggestedCategoryId)
+    }
+
+    // Active design style
     var currentArcStyle by remember { mutableStateOf(settings.arcDesignStyle) }
 
     // UI state
     var isExpanded by remember { mutableStateOf(settings.autoExpandOnCapture) }
+    var isOverflowExpanded by remember { mutableStateOf(false) }
     var isDismissing by remember { mutableStateOf(false) }
     var isDeleting by remember { mutableStateOf(false) }
     var successCategory by remember { mutableStateOf<CategoryUiModel?>(null) }
+    var showUndoSnackbar by remember { mutableStateOf(false) }
     var hoveredCategory by remember { mutableStateOf<CategoryUiModel?>(null) }
     var isDeleteHovered by remember { mutableStateOf(false) }
     var isShareHovered by remember { mutableStateOf(false) }
+    var isMoreHovered by remember { mutableStateOf(false) }
 
-    // Drag offset
+    // Drag offset & snapping
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
     var isDragging by remember { mutableStateOf(false) }
@@ -154,15 +176,12 @@ fun FloatingOverlayView(
     val arcRadiusPx = with(density) { arcRadius.toPx() }
     val hitThresholdPx = with(density) { 56.dp.toPx() }
 
-    // Use adaptive tray if there are many categories (> 8)
-    val useAdaptiveTray = categories.size > 8
-
-    // Auto-dismiss countdown
+    // Auto-dismiss countdown timer
     var remainingSeconds by remember { mutableStateOf(settings.autoDismissSeconds) }
     var timerProgress by remember { mutableFloatStateOf(1.0f) }
 
-    LaunchedEffect(isDragging, isDismissing, successCategory, isDeleting) {
-        if (isDragging || isDismissing || successCategory != null || isDeleting) return@LaunchedEffect
+    LaunchedEffect(isDragging, isDismissing, successCategory, isDeleting, showUndoSnackbar) {
+        if (isDragging || isDismissing || successCategory != null || isDeleting || showUndoSnackbar) return@LaunchedEffect
         val totalMillis = settings.autoDismissSeconds * 1000L
         val interval = 50L
         var elapsed = 0L
@@ -179,16 +198,16 @@ fun FloatingOverlayView(
         onDismiss()
     }
 
-    // Exit animation wrapper
+    // Exit animation wrapper (~200-300ms)
     val exitScale by animateFloatAsState(
         targetValue = if (isDismissing) 0.0f else if (isDeleting) 0.1f else 1.0f,
-        animationSpec = tween(280, easing = FastOutSlowInEasing),
+        animationSpec = tween(260, easing = FastOutSlowInEasing),
         label = "ExitScale"
     )
 
     val exitAlpha by animateFloatAsState(
         targetValue = if (isDismissing || isDeleting) 0.0f else 1.0f,
-        animationSpec = tween(230, easing = LinearEasing),
+        animationSpec = tween(220, easing = LinearEasing),
         label = "ExitAlpha"
     )
 
@@ -202,6 +221,17 @@ fun FloatingOverlayView(
         ),
         label = "PulseGlow"
     )
+
+    val radialLayout = remember(orderedCategories, arcRadiusPx, currentArcStyle, isRtl, isOverflowExpanded, suggestedCategoryId) {
+        RadialMenuGeometry.calculateLayout(
+            categories = orderedCategories,
+            radiusPx = arcRadiusPx,
+            style = currentArcStyle,
+            isRtl = isRtl,
+            suggestedCategoryId = suggestedCategoryId,
+            isOverflowExpanded = isOverflowExpanded
+        )
+    }
 
     ScreenArcTheme {
         BoxWithConstraints(
@@ -226,7 +256,7 @@ fun FloatingOverlayView(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
                     ) {
-                        if (!isDismissing && !isDeleting) {
+                        if (!isDismissing && !isDeleting && !showUndoSnackbar) {
                             coroutineScope.launch {
                                 isDismissing = true
                                 delay(220)
@@ -236,95 +266,72 @@ fun FloatingOverlayView(
                     }
             )
 
-            // Category targets layout: Redesigned Radial Arc or Adaptive tray
-            if (!useAdaptiveTray) {
-                ArcMenuLayout(
-                    categories = categories,
-                    isExpanded = isExpanded,
-                    radiusDp = arcRadius,
-                    dragOffsetPx = Offset(animatedDragX, animatedDragY),
-                    paletteColors = screenshot.paletteColors,
-                    dynamicPaletteEnabled = settings.dynamicPaletteEnabled,
-                    hoveredCategoryId = hoveredCategory?.id,
-                    isDeleteHovered = isDeleteHovered,
-                    isShareHovered = isShareHovered,
-                    arcDesignStyle = currentArcStyle,
-                    onCategoryClick = { category ->
-                        if (isDismissing || isDeleting) return@ArcMenuLayout
-                        successCategory = category
-                        triggerHapticFeedback(context, HapticType.DROP)
-                        coroutineScope.launch {
-                            delay(350)
-                            onMoveToCategory(category)
-                            isDismissing = true
-                            delay(200)
-                            onDismiss()
-                        }
-                    },
-                    onDeleteClick = {
-                        if (isDismissing || isDeleting) return@ArcMenuLayout
-                        isDeleting = true
-                        triggerHapticFeedback(context, HapticType.DROP)
-                        coroutineScope.launch {
-                            delay(350)
-                            onDeleteScreenshot()
-                            isDismissing = true
-                            delay(200)
-                            onDismiss()
-                        }
-                    },
-                    onShareClick = {
-                        if (isDismissing || isDeleting) return@ArcMenuLayout
-                        triggerHapticFeedback(context, HapticType.DROP)
-                        coroutineScope.launch {
-                            delay(150)
-                            onShareScreenshot()
-                            isDismissing = true
-                            delay(200)
-                            onDismiss()
-                        }
+            // Category targets layout
+            ArcMenuLayout(
+                categories = orderedCategories,
+                isExpanded = isExpanded && !showUndoSnackbar,
+                radiusDp = arcRadius,
+                dragOffsetPx = Offset(animatedDragX, animatedDragY),
+                paletteColors = screenshot.paletteColors,
+                dynamicPaletteEnabled = settings.dynamicPaletteEnabled,
+                hoveredCategoryId = hoveredCategory?.id,
+                isDeleteHovered = isDeleteHovered,
+                isShareHovered = isShareHovered,
+                isMoreHovered = isMoreHovered,
+                isOverflowExpanded = isOverflowExpanded,
+                suggestedCategoryId = suggestedCategoryId,
+                arcDesignStyle = currentArcStyle,
+                onCategoryClick = { category ->
+                    if (isDismissing || isDeleting || showUndoSnackbar) return@ArcMenuLayout
+                    successCategory = category
+                    triggerHapticFeedback(context, HapticType.DROP)
+                    coroutineScope.launch {
+                        delay(300)
+                        onMoveToCategory(category)
+                        showUndoSnackbar = true
                     }
-                )
-            } else {
-                // Adaptive bottom category drop tray when many categories exist
-                AnimatedVisibility(
-                    visible = isExpanded,
-                    enter = fadeIn() + scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)),
-                    exit = fadeOut() + scaleOut(),
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 72.dp)
-                ) {
-                    AdaptiveCategoryDropTargets(
-                        categories = categories,
-                        availableWidth = screenWidth - 32.dp,
-                        availableHeight = 120.dp,
-                        isDragging = isDragging,
-                        highlightedCategoryId = hoveredCategory?.id,
-                        onCategoryDrop = { category ->
-                            if (isDismissing || isDeleting) return@AdaptiveCategoryDropTargets
-                            successCategory = category
-                            triggerHapticFeedback(context, HapticType.DROP)
-                            coroutineScope.launch {
-                                delay(350)
-                                onMoveToCategory(category)
-                                isDismissing = true
-                                delay(200)
-                                onDismiss()
-                            }
-                        },
-                        onCategoryFocused = { category ->
-                            hoveredCategory = category
-                        }
-                    )
+                },
+                onDeleteClick = {
+                    if (isDismissing || isDeleting || showUndoSnackbar) return@ArcMenuLayout
+                    isDeleting = true
+                    triggerHapticFeedback(context, HapticType.DROP)
+                    coroutineScope.launch {
+                        delay(350)
+                        onDeleteScreenshot()
+                        isDismissing = true
+                        delay(200)
+                        onDismiss()
+                    }
+                },
+                onShareClick = {
+                    if (isDismissing || isDeleting || showUndoSnackbar) return@ArcMenuLayout
+                    triggerHapticFeedback(context, HapticType.DROP)
+                    coroutineScope.launch {
+                        delay(150)
+                        onShareScreenshot()
+                        isDismissing = true
+                        delay(200)
+                        onDismiss()
+                    }
+                },
+                onMoreClick = {
+                    isOverflowExpanded = !isOverflowExpanded
+                    triggerHapticFeedback(context, HapticType.ENTER)
                 }
-            }
+            )
 
             // Central Bubble & Drag Item
             val bubbleElevation by animateDpAsState(
                 targetValue = if (isDragging) 16.dp else 6.dp,
                 animationSpec = tween(150),
                 label = "BubbleElevation"
+            )
+
+            // Shrink on drag over target pod for intuitive snapping feedback
+            val thumbnailDragScale by animateFloatAsState(
+                targetValue = if (hoveredCategory != null || isDeleteHovered || isShareHovered) 0.68f else 1.0f,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+                label = "ThumbnailDragScale"
             )
 
             val currentHovered = hoveredCategory
@@ -345,29 +352,25 @@ fun FloatingOverlayView(
                 label = "BubbleBorderColor"
             )
 
-            val radialLayout = remember(categories, arcRadiusPx, currentArcStyle) {
-                RadialMenuGeometry.calculateLayout(categories, arcRadiusPx, currentArcStyle)
-            }
+            if (!showUndoSnackbar) {
+                Box(
+                    modifier = Modifier
+                        .offset {
+                            IntOffset(animatedDragX.roundToInt(), animatedDragY.roundToInt())
+                        }
+                        .scale(if (!isExpanded && !isDragging) pulseGlow else thumbnailDragScale)
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = {
+                                    isDragging = true
+                                    isExpanded = true
+                                    triggerHapticFeedback(context, HapticType.ENTER)
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    dragOffsetX += dragAmount.x
+                                    dragOffsetY += dragAmount.y
 
-            Box(
-                modifier = Modifier
-                    .offset {
-                        IntOffset(animatedDragX.roundToInt(), animatedDragY.roundToInt())
-                    }
-                    .scale(if (!isExpanded && !isDragging) pulseGlow else 1.0f)
-                    .pointerInput(Unit) {
-                        detectDragGestures(
-                            onDragStart = {
-                                isDragging = true
-                                isExpanded = true
-                                triggerHapticFeedback(context, HapticType.ENTER)
-                            },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                dragOffsetX += dragAmount.x
-                                dragOffsetY += dragAmount.y
-
-                                if (!useAdaptiveTray) {
                                     val hoverTarget = RadialMenuGeometry.findHoverTarget(
                                         Offset(dragOffsetX, dragOffsetY),
                                         radialLayout,
@@ -377,6 +380,7 @@ fun FloatingOverlayView(
                                     val newHoveredCat = (hoverTarget as? HoverTarget.Category)?.category
                                     val newIsDelete = hoverTarget is HoverTarget.Delete
                                     val newIsShare = hoverTarget is HoverTarget.Share
+                                    val newIsMore = hoverTarget is HoverTarget.More
 
                                     if (newIsDelete != isDeleteHovered) {
                                         isDeleteHovered = newIsDelete
@@ -386,402 +390,417 @@ fun FloatingOverlayView(
                                         isShareHovered = newIsShare
                                         if (newIsShare) triggerHapticFeedback(context, HapticType.ENTER)
                                     }
+                                    if (newIsMore != isMoreHovered) {
+                                        isMoreHovered = newIsMore
+                                        if (newIsMore) {
+                                            triggerHapticFeedback(context, HapticType.ENTER)
+                                            isOverflowExpanded = true
+                                        }
+                                    }
                                     if (newHoveredCat != hoveredCategory) {
                                         if (newHoveredCat != null) triggerHapticFeedback(context, HapticType.ENTER)
                                         else if (hoveredCategory != null) triggerHapticFeedback(context, HapticType.LEAVE)
                                         hoveredCategory = newHoveredCat
                                     }
-                                }
-                            },
-                            onDragEnd = {
-                                isDragging = false
-                                if (isDeleteHovered) {
-                                    isDeleting = true
-                                    triggerHapticFeedback(context, HapticType.DROP)
-                                    coroutineScope.launch {
-                                        delay(350)
-                                        onDeleteScreenshot()
-                                        isDismissing = true
-                                        delay(200)
-                                        onDismiss()
+                                },
+                                onDragEnd = {
+                                    isDragging = false
+                                    if (isDeleteHovered) {
+                                        isDeleting = true
+                                        triggerHapticFeedback(context, HapticType.DROP)
+                                        coroutineScope.launch {
+                                            delay(350)
+                                            onDeleteScreenshot()
+                                            isDismissing = true
+                                            delay(200)
+                                            onDismiss()
+                                        }
+                                    } else if (isShareHovered) {
+                                        triggerHapticFeedback(context, HapticType.DROP)
+                                        coroutineScope.launch {
+                                            delay(150)
+                                            onShareScreenshot()
+                                            isDismissing = true
+                                            delay(200)
+                                            onDismiss()
+                                        }
+                                    } else if (hoveredCategory != null) {
+                                        val target = hoveredCategory!!
+                                        successCategory = target
+                                        triggerHapticFeedback(context, HapticType.DROP)
+                                        coroutineScope.launch {
+                                            delay(300)
+                                            onMoveToCategory(target)
+                                            showUndoSnackbar = true
+                                        }
+                                    } else {
+                                        dragOffsetX = 0f
+                                        dragOffsetY = 0f
+                                        hoveredCategory = null
+                                        isDeleteHovered = false
+                                        isShareHovered = false
+                                        isMoreHovered = false
                                     }
-                                } else if (isShareHovered) {
-                                    triggerHapticFeedback(context, HapticType.DROP)
-                                    coroutineScope.launch {
-                                        delay(150)
-                                        onShareScreenshot()
-                                        isDismissing = true
-                                        delay(200)
-                                        onDismiss()
-                                    }
-                                } else if (hoveredCategory != null) {
-                                    val target = hoveredCategory!!
-                                    successCategory = target
-                                    triggerHapticFeedback(context, HapticType.DROP)
-                                    coroutineScope.launch {
-                                        delay(350)
-                                        onMoveToCategory(target)
-                                        isDismissing = true
-                                        delay(200)
-                                        onDismiss()
-                                    }
-                                } else {
+                                },
+                                onDragCancel = {
+                                    isDragging = false
                                     dragOffsetX = 0f
                                     dragOffsetY = 0f
                                     hoveredCategory = null
                                     isDeleteHovered = false
                                     isShareHovered = false
+                                    isMoreHovered = false
                                 }
-                            },
-                            onDragCancel = {
-                                isDragging = false
-                                dragOffsetX = 0f
-                                dragOffsetY = 0f
-                                hoveredCategory = null
-                                isDeleteHovered = false
-                                isShareHovered = false
-                            }
-                        )
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                // Auto-dismiss circular timer ring
-                if (!isDragging && successCategory == null && !isDeleting) {
-                    CircularProgressIndicator(
-                        progress = { timerProgress },
-                        modifier = Modifier.size(bubbleSize + 16.dp),
-                        color = if (settings.dynamicPaletteEnabled) screenshot.paletteColors.vibrant else MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                        strokeWidth = 3.dp
-                    )
-                }
-
-                // Main Thumbnail Bubble Surface
-                Surface(
-                    modifier = Modifier
-                        .size(bubbleSize)
-                        .clip(CircleShape)
-                        .clickable {
-                            isExpanded = !isExpanded
-                            triggerHapticFeedback(context, HapticType.ENTER)
-                        }
-                        .semantics {
-                            contentDescription = "Floating screenshot thumbnail bubble"
-                        },
-                    shape = CircleShape,
-                    shadowElevation = bubbleElevation,
-                    color = MaterialTheme.colorScheme.surface
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .border(
-                                width = if (isDragging || successCategory != null || isDeleteHovered || isDeleting) 3.2.dp else 2.dp,
-                                color = bubbleBorderColor,
-                                shape = CircleShape
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (screenshot.bitmapPreview != null) {
-                            Image(
-                                bitmap = screenshot.bitmapPreview.asImageBitmap(),
-                                contentDescription = "Screenshot Preview",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
                             )
-                        } else {
-                            Surface(
-                                modifier = Modifier.fillMaxSize(),
-                                color = screenshot.paletteColors.dominant
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    // Auto-dismiss circular timer ring
+                    if (!isDragging && successCategory == null && !isDeleting) {
+                        CircularProgressIndicator(
+                            progress = { timerProgress },
+                            modifier = Modifier.size(bubbleSize + 16.dp),
+                            color = if (settings.dynamicPaletteEnabled) screenshot.paletteColors.vibrant else MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                            strokeWidth = 3.dp
+                        )
+                    }
+
+                    // Main Thumbnail Bubble Surface
+                    Surface(
+                        modifier = Modifier
+                            .size(bubbleSize)
+                            .clip(CircleShape)
+                            .clickable {
+                                isExpanded = !isExpanded
+                                triggerHapticFeedback(context, HapticType.ENTER)
+                            }
+                            .semantics {
+                                contentDescription = "Screenshot preview thumbnail bubble, tap to expand or drag to categorize"
+                            },
+                        shape = CircleShape,
+                        shadowElevation = bubbleElevation,
+                        color = MaterialTheme.colorScheme.surface
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .border(
+                                    width = if (isDragging || successCategory != null || isDeleteHovered || isDeleting) 3.2.dp else 2.dp,
+                                    color = bubbleBorderColor,
+                                    shape = CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (screenshot.bitmapPreview != null) {
+                                Image(
+                                    bitmap = screenshot.bitmapPreview.asImageBitmap(),
+                                    contentDescription = "Screenshot Preview",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Surface(
+                                    modifier = Modifier.fillMaxSize(),
+                                    color = screenshot.paletteColors.dominant
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.Folder,
+                                            contentDescription = "Screenshot",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Success checkmark overlay
+                            AnimatedVisibility(
+                                visible = successCategory != null,
+                                enter = scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn(),
+                                exit = scaleOut() + fadeOut()
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color(0xCC4CAF50)),
+                                    contentAlignment = Alignment.Center
+                                ) {
                                     Icon(
-                                        imageVector = Icons.Default.Folder,
-                                        contentDescription = "Screenshot",
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Categorized successfully",
                                         tint = Color.White,
-                                        modifier = Modifier.size(28.dp)
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                }
+                            }
+
+                            // Delete shred overlay
+                            AnimatedVisibility(
+                                visible = isDeleting,
+                                enter = scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn(),
+                                exit = scaleOut() + fadeOut()
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color(0xCCE53935)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Deleted successfully",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                }
+                            }
+
+                            // Drag Handle hint
+                            if (isExpanded && !isDragging && successCategory == null && !isDeleting) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color.Black.copy(alpha = 0.22f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DragHandle,
+                                        contentDescription = "Drag to categorize",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(24.dp)
                                     )
                                 }
                             }
                         }
+                    }
 
-                        // Success checkmark overlay
-                        AnimatedVisibility(
-                            visible = successCategory != null,
-                            enter = scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn(),
-                            exit = scaleOut() + fadeOut()
+                    // Quick dismiss 'X' button
+                    if (isExpanded && !isDragging && successCategory == null && !isDeleting) {
+                        Surface(
+                            modifier = Modifier
+                                .offset(x = (bubbleSize.value / 2).dp - 4.dp, y = -(bubbleSize.value / 2).dp + 4.dp)
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .clickable {
+                                    coroutineScope.launch {
+                                        isDismissing = true
+                                        delay(180)
+                                        onDismiss()
+                                    }
+                                },
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            shadowElevation = 4.dp
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color(0xCC4CAF50)),
-                                contentAlignment = Alignment.Center
-                            ) {
+                            Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    imageVector = Icons.Default.CheckCircle,
-                                    contentDescription = "Categorized successfully",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(36.dp)
-                                )
-                            }
-                        }
-
-                        // Delete shred overlay
-                        AnimatedVisibility(
-                            visible = isDeleting,
-                            enter = scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn(),
-                            exit = scaleOut() + fadeOut()
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color(0xCCE53935)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = "Deleted successfully",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(36.dp)
-                                )
-                            }
-                        }
-
-                        // Drag Handle hint
-                        if (isExpanded && !isDragging && successCategory == null && !isDeleting) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color.Black.copy(alpha = 0.22f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.DragHandle,
-                                    contentDescription = "Drag to categorize",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(24.dp)
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Dismiss",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(14.dp)
                                 )
                             }
                         }
                     }
                 }
+            }
 
-                // Quick dismiss 'X' button
-                if (isExpanded && !isDragging && successCategory == null && !isDeleting) {
-                    Surface(
-                        modifier = Modifier
-                            .offset(x = (bubbleSize.value / 2).dp - 4.dp, y = -(bubbleSize.value / 2).dp + 4.dp)
-                            .size(24.dp)
-                            .clip(CircleShape)
-                            .clickable {
-                                coroutineScope.launch {
-                                    isDismissing = true
-                                    delay(180)
-                                    onDismiss()
-                                }
-                            },
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        shadowElevation = 4.dp
+            // Clear UNDO Snackbar after move
+            AnimatedVisibility(
+                visible = showUndoSnackbar && successCategory != null,
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp, start = 16.dp, end = 16.dp)
+            ) {
+                var undoTimerSec by remember { mutableStateOf(4) }
+                LaunchedEffect(showUndoSnackbar) {
+                    while (undoTimerSec > 0) {
+                        delay(1000)
+                        undoTimerSec--
+                    }
+                    isDismissing = true
+                    delay(200)
+                    onDismiss()
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.inverseSurface,
+                    shadowElevation = 10.dp,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Dismiss",
-                                tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(14.dp)
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = Color(0xFF4CAF50),
+                                modifier = Modifier.size(22.dp)
                             )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Moved to ${successCategory?.name}",
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.inverseOnSurface
+                                )
+                                Text(
+                                    text = "Auto-closing in ${undoTimerSec}s",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.inverseOnSurface.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        TextButton(
+                            onClick = {
+                                successCategory?.let { onUndoMove?.invoke(it) }
+                                showUndoSnackbar = false
+                                successCategory = null
+                                triggerHapticFeedback(context, HapticType.DROP)
+                            },
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.inversePrimary
+                            )
+                        ) {
+                            Icon(Icons.Default.Undo, contentDescription = "Undo", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("UNDO", fontWeight = FontWeight.ExtraBold)
                         }
                     }
                 }
             }
 
             // Bottom Actions & Intuitive Arc Design Switcher
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Success banner
-                AnimatedVisibility(
-                    visible = successCategory != null,
-                    enter = fadeIn() + scaleIn(),
-                    exit = fadeOut() + scaleOut()
+            if (!showUndoSnackbar) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(24.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shadowElevation = 8.dp
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
+                    // Interactive Arc Design Switcher Pill (Orbit ✦ | Fan ⌓ | Dial 🝯)
+                    if (isExpanded && !isDragging && successCategory == null && !isDeleting) {
+                        Surface(
+                            shape = RoundedCornerShape(18.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f),
+                            shadowElevation = 6.dp,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Moved to ${successCategory?.name}!",
-                                style = MaterialTheme.typography.labelLarge.copy(
-                                    fontWeight = FontWeight.Bold
-                                ),
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
-                    }
-                }
-
-                // Delete feedback banner
-                AnimatedVisibility(
-                    visible = isDeleting,
-                    enter = fadeIn() + scaleIn(),
-                    exit = fadeOut() + scaleOut()
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(24.dp),
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        shadowElevation = 8.dp
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onErrorContainer,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Deleting screenshot...",
-                                style = MaterialTheme.typography.labelLarge.copy(
-                                    fontWeight = FontWeight.Bold
-                                ),
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                        }
-                    }
-                }
-
-                // Interactive Arc Design Switcher Pill (Orbit ✦ | Fan ⌓ | Dial 🝯)
-                if (isExpanded && !isDragging && successCategory == null && !isDeleting && !useAdaptiveTray) {
-                    Surface(
-                        shape = RoundedCornerShape(18.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f),
-                        shadowElevation = 6.dp,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            ArcDesignStyle.values().forEach { style ->
-                                val isSelected = currentArcStyle == style
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .clickable {
-                                            currentArcStyle = style
-                                            onStyleChanged?.invoke(style)
-                                            triggerHapticFeedback(context, HapticType.ENTER)
-                                        }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                ArcDesignStyle.values().forEach { style ->
+                                    val isSelected = currentArcStyle == style
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .clickable {
+                                                currentArcStyle = style
+                                                onStyleChanged?.invoke(style)
+                                                triggerHapticFeedback(context, HapticType.ENTER)
+                                            }
                                     ) {
-                                        Text(
-                                            text = when (style) {
-                                                ArcDesignStyle.ORBIT -> "✦ Orbit"
-                                                ArcDesignStyle.FAN -> "⌓ Fan"
-                                                ArcDesignStyle.DIAL -> "🝯 Dial"
-                                            },
-                                            style = MaterialTheme.typography.labelSmall.copy(
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                            ),
-                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = when (style) {
+                                                    ArcDesignStyle.ORBIT -> "✦ Orbit"
+                                                    ArcDesignStyle.FAN -> "⌓ Fan"
+                                                    ArcDesignStyle.DIAL -> "🝯 Dial"
+                                                },
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                                ),
+                                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                // Drag instruction & Open Search shortcut
-                AnimatedVisibility(
-                    visible = isExpanded && !isDragging && successCategory == null && !isDeleting,
-                    enter = fadeIn(),
-                    exit = fadeOut()
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // Drag instruction & Open Search shortcut
+                    AnimatedVisibility(
+                        visible = isExpanded && !isDragging && successCategory == null && !isDeleting,
+                        enter = fadeIn(),
+                        exit = fadeOut()
                     ) {
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
-                            shadowElevation = 4.dp
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
+                                shadowElevation = 4.dp
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.TouchApp,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Drag to Category, Delete, or Share",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        // Open Search Action
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            shadowElevation = 4.dp,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(16.dp))
-                                .clickable {
-                                    onOpenSearch()
-                                    onDismiss()
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.TouchApp,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Drag or Tap Category to Move",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            }
+
+                            // Open Search Action
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                shadowElevation = 4.dp,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .clickable {
+                                        onOpenSearch()
+                                        onDismiss()
+                                    }
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = "Search & OCR in App",
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Search & OCR",
-                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = "Search & OCR in App",
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Search & OCR",
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
                             }
                         }
                     }

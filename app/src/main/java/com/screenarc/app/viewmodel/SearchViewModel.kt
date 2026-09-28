@@ -227,6 +227,14 @@ class SearchViewModel @JvmOverloads constructor(
         rulesRepository.toggleRule(ruleId, isEnabled)
     }
 
+    fun moveRulePriority(ruleId: String, moveUp: Boolean) {
+        rulesRepository.moveRulePriority(ruleId, moveUp)
+    }
+
+    fun reorderRules(reorderedRules: List<AutoCategorizationRule>) {
+        rulesRepository.reorderRules(reorderedRules)
+    }
+
     fun runRule(ruleId: String) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isRuleRunning = true)
@@ -296,6 +304,17 @@ class SearchViewModel @JvmOverloads constructor(
             _uiState.value = _uiState.value.copy(
                 isOcrRunning = false,
                 infoMessage = "OCR processed: ${batch.processedCount} (Success: ${batch.successCount}, Failed: ${batch.failureCount})"
+            )
+        }
+    }
+
+    fun runAutoRulesForUncategorized() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isOcrRunning = true)
+            val result = rulesRepository.runAllActiveRules(screenshotRepository, categoryRepository, ocrRepository)
+            _uiState.value = _uiState.value.copy(
+                isOcrRunning = false,
+                infoMessage = result.message
             )
         }
     }

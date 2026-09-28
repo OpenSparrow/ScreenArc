@@ -1,6 +1,7 @@
 package com.screenarc.app.service
 
 import android.app.Notification
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
@@ -15,6 +16,7 @@ import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.Toast
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.Lifecycle
@@ -59,6 +61,8 @@ class OverlayService : Service() {
     private lateinit var settingsRepository: AppSettingsRepository
     private lateinit var historyRepository: OrganizedHistoryRepository
     private lateinit var screenshotRepository: ScreenshotRepository
+    private lateinit var ocrRepository: com.screenarc.app.data.OcrRepository
+    private lateinit var rulesRepository: com.screenarc.app.data.RulesRepository
 
     private var currentOverlayScreenshot: ScreenshotItem? = null
     private val overlayLifecycleOwner = OverlayServiceLifecycleOwner()
@@ -72,6 +76,8 @@ class OverlayService : Service() {
         settingsRepository = AppSettingsRepository(this)
         historyRepository = OrganizedHistoryRepository(this)
         screenshotRepository = ScreenshotRepository(this)
+        ocrRepository = com.screenarc.app.data.OcrRepositoryImpl(this)
+        rulesRepository = com.screenarc.app.data.RulesRepository(this)
 
         overlayLifecycleOwner.performRestore(null)
         overlayLifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
@@ -163,8 +169,8 @@ class OverlayService : Service() {
     private fun registerScreenshotObserver() {
         if (screenshotObserver == null) {
             screenshotObserver = ScreenshotObserver(this, serviceScope) { detectedItem ->
-                Log.d(TAG, "Displaying overlay for new screenshot: ${detectedItem.displayName}")
-                showFloatingOverlay(detectedItem)
+                Log.d(TAG, "Screenshot detected: ${detectedItem.displayName}")
+                handleDetectedScreenshot(detectedItem)
             }
             contentResolver.registerContentObserver(
                 MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
@@ -172,6 +178,43 @@ class OverlayService : Service() {
                 screenshotObserver!!
             )
             Log.d(TAG, "Registered MediaStore content observer successfully")
+        }
+    }
+
+    private fun handleDetectedScreenshot(screenshot: ScreenshotItem) {
+        val settings = settingsRepository.settings.value
+        if (settings.autoOcrEnabled) {
+            serviceScope.launch {
+                try {
+                    val ocrResult = ocrRepository.recognizeText(screenshot.uri, settings.ocrLanguage)
+                    if (ocrResult.success && ocrResult.recognizedText.isNotBlank()) {
+                        val activeRules = rulesRepository.rules.value.filter { it.isEnabled }.sortedBy { it.priority }
+                        val winningMatch = com.screenarc.app.model.AutoCategorizationRule.resolveBestMatch(activeRules, ocrResult.recognizedText)
+                        if (winningMatch != null && winningMatch.isAssigned) {
+                            val categories = categoryRepository.categories.value
+                            val targetCat = categories.find { it.id == winningMatch.rule.targetCategoryId }
+                                ?: categories.find { it.name.equals(winningMatch.rule.targetCategoryName, ignoreCase = true) }
+
+                            if (targetCat != null) {
+                                if (settings.autoAssignRulesEnabled) {
+                                    Log.d(TAG, "Auto-categorizing screenshot ${screenshot.displayName} -> ${targetCat.name} via rule '${winningMatch.rule.name}'")
+                                    handleMoveToCategory(screenshot, targetCat)
+                                    return@launch
+                                } else {
+                                    // Highlight & prioritize suggested category on radial overlay
+                                    showFloatingOverlay(screenshot, suggestedCategoryId = targetCat.id)
+                                    return@launch
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Background auto-processing error: ${e.message}", e)
+                }
+                showFloatingOverlay(screenshot)
+            }
+        } else {
+            showFloatingOverlay(screenshot)
         }
     }
 
@@ -183,10 +226,38 @@ class OverlayService : Service() {
         }
     }
 
-    fun showFloatingOverlay(screenshot: ScreenshotItem) {
+    private fun postFallbackNotification(screenshot: ScreenshotItem, reason: String) {
+        Log.d(TAG, "Posting fallback notification for screenshot ${screenshot.displayName}: $reason")
+        val openAppIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(MainActivity.EXTRA_NAVIGATE_TAB, MainActivity.TAB_SEARCH)
+            putExtra(EXTRA_URI, screenshot.uri.toString())
+        }
+        val openPendingIntent = PendingIntent.getActivity(
+            this,
+            (screenshot.id % 10000).toInt(),
+            openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, ScreenArcApplication.CHANNEL_ID)
+            .setContentTitle("New Screenshot Detected")
+            .setContentText("Tap to organize ${screenshot.displayName}")
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentIntent(openPendingIntent)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify((FALLBACK_NOTIFICATION_ID + (screenshot.id % 1000)).toInt(), notification)
+    }
+
+    fun showFloatingOverlay(screenshot: ScreenshotItem, suggestedCategoryId: Long? = null) {
         if (!Settings.canDrawOverlays(this)) {
             Log.w(TAG, "Cannot draw overlay: SYSTEM_ALERT_WINDOW permission not granted")
             Toast.makeText(this, "ScreenArc: Overlay permission required", Toast.LENGTH_SHORT).show()
+            postFallbackNotification(screenshot, "Overlay permission not granted")
             return
         }
 
@@ -226,13 +297,28 @@ class OverlayService : Service() {
             setContent {
                 val categories = categoryRepository.categories.value
                 val settings = settingsRepository.settings.value
+                val history = historyRepository.history.value
+
+                // Compute usage counts for each category
+                val usageMap = remember(history) {
+                    history.groupBy { it.categoryName }
+                        .mapNotNull { entry ->
+                            val cat = categories.find { it.name.equals(entry.key, ignoreCase = true) }
+                            cat?.let { it.id to entry.value.size }
+                        }.toMap()
+                }
 
                 FloatingOverlayView(
                     screenshot = screenshot,
                     categories = categories,
                     settings = settings,
+                    suggestedCategoryId = suggestedCategoryId,
+                    categoryUsageMap = usageMap,
                     onMoveToCategory = { category ->
                         handleMoveToCategory(screenshot, category)
+                    },
+                    onUndoMove = { category ->
+                        handleUndoMove(screenshot, category)
                     },
                     onDeleteScreenshot = {
                         handleDeleteScreenshot(screenshot)
@@ -263,31 +349,59 @@ class OverlayService : Service() {
             Log.d(TAG, "Added FloatingOverlayView to WindowManager")
         } catch (e: Exception) {
             Log.e(TAG, "Failed adding overlay to WindowManager: ${e.message}", e)
+            postFallbackNotification(screenshot, "WindowManager error: ${e.message}")
         }
     }
 
+    private var lastMovedScreenshotUi: com.screenarc.app.model.ScreenshotUiModel? = null
+
     private fun handleMoveToCategory(screenshot: ScreenshotItem, category: CategoryUiModel) {
         screenshotObserver?.markProcessed(screenshot.id, screenshot.uri)
-        currentOverlayScreenshot = null
-        removeOverlayView(clearCurrentScreenshot = true)
+
+        val screenshotUi = com.screenarc.app.model.ScreenshotUiModel(
+            id = screenshot.id,
+            uri = screenshot.uri.toString(),
+            displayName = screenshot.displayName,
+            dateAdded = screenshot.dateAdded,
+            size = screenshot.size,
+            relativePath = screenshot.relativePath,
+            mimeType = screenshot.mimeType
+        )
+        lastMovedScreenshotUi = screenshotUi
 
         serviceScope.launch {
-            val screenshotUi = com.screenarc.app.model.ScreenshotUiModel(
-                id = screenshot.id,
-                uri = screenshot.uri.toString(),
-                displayName = screenshot.displayName,
-                dateAdded = screenshot.dateAdded,
-                size = screenshot.size,
-                relativePath = screenshot.relativePath,
-                mimeType = screenshot.mimeType
-            )
             val result = screenshotRepository.moveToCategory(screenshotUi, category)
             result.onSuccess { newUri ->
                 screenshotObserver?.markProcessed(screenshot.id, newUri)
+                lastMovedScreenshotUi = screenshotUi.copy(uri = newUri.toString(), relativePath = "Pictures/Screenshots/${category.subfolderName}/", categoryId = category.id)
                 Log.d(TAG, "Successfully moved screenshot to ${category.name}")
             }.onFailure { err ->
                 Log.e(TAG, "Failed moving screenshot: ${err.message}", err)
                 Toast.makeText(this@OverlayService, "Error moving to ${category.name}: ${err.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun handleUndoMove(screenshot: ScreenshotItem, category: CategoryUiModel) {
+        val itemToUndo = lastMovedScreenshotUi ?: com.screenarc.app.model.ScreenshotUiModel(
+            id = screenshot.id,
+            uri = screenshot.uri.toString(),
+            displayName = screenshot.displayName,
+            dateAdded = screenshot.dateAdded,
+            size = screenshot.size,
+            relativePath = "Pictures/Screenshots/${category.subfolderName}/",
+            mimeType = screenshot.mimeType
+        )
+
+        serviceScope.launch {
+            val result = screenshotRepository.undoMoveToCategory(itemToUndo)
+            result.onSuccess { restoredUri ->
+                screenshotObserver?.markProcessed(screenshot.id, restoredUri)
+                Toast.makeText(this@OverlayService, "Restored to Screenshots", Toast.LENGTH_SHORT).show()
+                Log.d(TAG, "Successfully undid move for screenshot ${screenshot.displayName}")
+            }.onFailure { err ->
+                Log.e(TAG, "Failed to undo move: ${err.message}", err)
+                Toast.makeText(this@OverlayService, "Could not undo: ${err.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -419,6 +533,7 @@ class OverlayService : Service() {
     companion object {
         private const val TAG = "OverlayService"
         private const val NOTIFICATION_ID = 1001
+        private const val FALLBACK_NOTIFICATION_ID = 2002
 
         const val ACTION_START_SERVICE = "com.screenarc.app.action.START_SERVICE"
         const val ACTION_STOP_SERVICE = "com.screenarc.app.action.STOP_SERVICE"

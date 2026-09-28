@@ -25,7 +25,9 @@ data class AppSettings(
     val playSoundOnDrop: Boolean = false,
     val ocrProcessingMode: OcrProcessingMode = OcrProcessingMode.ASK_BEFORE_PROCESSING,
     val ocrLanguage: OcrLanguage = OcrLanguage.DEVANAGARI,
-    val arcDesignStyle: com.screenarc.app.model.ArcDesignStyle = com.screenarc.app.model.ArcDesignStyle.ORBIT
+    val arcDesignStyle: com.screenarc.app.model.ArcDesignStyle = com.screenarc.app.model.ArcDesignStyle.ORBIT,
+    val autoOcrEnabled: Boolean = false,
+    val autoAssignRulesEnabled: Boolean = false
 )
 
 class AppSettingsRepository(context: Context) {
@@ -52,6 +54,9 @@ class AppSettingsRepository(context: Context) {
             com.screenarc.app.model.ArcDesignStyle.ORBIT
         }
 
+        val autoOcr = prefs.getBoolean("auto_ocr_enabled", false)
+        val autoRules = prefs.getBoolean("auto_assign_rules_enabled", false)
+
         return AppSettings(
             isServiceEnabled = prefs.getBoolean("is_service_enabled", false),
             bubbleSizeDp = prefs.getInt("bubble_size_dp", 64),
@@ -63,26 +68,37 @@ class AppSettingsRepository(context: Context) {
             playSoundOnDrop = prefs.getBoolean("play_sound_drop", false),
             ocrProcessingMode = ocrMode,
             ocrLanguage = ocrLang,
-            arcDesignStyle = arcStyle
+            arcDesignStyle = arcStyle,
+            autoOcrEnabled = autoOcr,
+            autoAssignRulesEnabled = if (autoOcr) autoRules else false
         )
     }
 
     fun updateSettings(transform: (AppSettings) -> AppSettings) {
-        val updated = transform(_settings.value)
+        val rawUpdated = transform(_settings.value)
+        // Enforce dependency: if autoOcr is disabled, autoAssignRules must be disabled.
+        // If autoAssignRules is enabled, autoOcr must also be enabled.
+        val finalUpdated = if (!rawUpdated.autoOcrEnabled) {
+            rawUpdated.copy(autoAssignRulesEnabled = false)
+        } else {
+            rawUpdated
+        }
+
         prefs.edit().apply {
-            putBoolean("is_service_enabled", updated.isServiceEnabled)
-            putInt("bubble_size_dp", updated.bubbleSizeDp)
-            putInt("arc_radius_dp", updated.arcRadiusDp)
-            putInt("auto_dismiss_seconds", updated.autoDismissSeconds)
-            putBoolean("haptic_feedback_enabled", updated.hapticFeedbackEnabled)
-            putBoolean("dynamic_palette_enabled", updated.dynamicPaletteEnabled)
-            putBoolean("auto_expand_capture", updated.autoExpandOnCapture)
-            putBoolean("play_sound_drop", updated.playSoundOnDrop)
-            putString("ocr_processing_mode", updated.ocrProcessingMode.name)
-            putString("ocr_language", updated.ocrLanguage.id)
-            putString("arc_design_style", updated.arcDesignStyle.name)
+            putBoolean("is_service_enabled", finalUpdated.isServiceEnabled)
+            putInt("bubble_size_dp", finalUpdated.bubbleSizeDp)
+            putInt("arc_radius_dp", finalUpdated.arcRadiusDp)
+            putInt("auto_dismiss_seconds", finalUpdated.autoDismissSeconds)
+            putBoolean("haptic_feedback_enabled", finalUpdated.hapticFeedbackEnabled)
+            putBoolean("dynamic_palette_enabled", finalUpdated.dynamicPaletteEnabled)
+            putBoolean("auto_expand_capture", finalUpdated.autoExpandOnCapture)
+            putBoolean("play_sound_drop", finalUpdated.playSoundOnDrop)
+            putString("ocr_processing_mode", finalUpdated.ocrProcessingMode.name)
+            putString("ocr_language", finalUpdated.ocrLanguage.id)
+            putString("arc_design_style", finalUpdated.arcDesignStyle.name)
+            putBoolean("auto_ocr_enabled", finalUpdated.autoOcrEnabled)
+            putBoolean("auto_assign_rules_enabled", finalUpdated.autoAssignRulesEnabled)
         }.apply()
-        _settings.value = updated
+        _settings.value = finalUpdated
     }
 }
-

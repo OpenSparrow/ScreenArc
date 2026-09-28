@@ -182,6 +182,44 @@ class ScreenshotRepository(
         result
     }
 
+    suspend fun undoMoveToCategory(
+        screenshot: ScreenshotUiModel
+    ): Result<Uri> = withContext(Dispatchers.IO) {
+        val rootCategory = com.screenarc.app.model.Category(
+            id = "0",
+            name = "Screenshots",
+            subfolderName = "",
+            iconName = "Folder",
+            colorHex = 0xFF6750A4
+        )
+        val legacyItem = ScreenshotItem(
+            id = screenshot.id,
+            uri = screenshot.contentUri,
+            displayName = screenshot.displayName,
+            dateAdded = screenshot.dateAdded,
+            size = screenshot.size,
+            relativePath = screenshot.relativePath,
+            mimeType = screenshot.mimeType
+        )
+        val result = MediaStoreOrganizer.moveToCategory(context, legacyItem, rootCategory)
+        result.onSuccess { newUri ->
+            screenshotDao.deleteScreenshotByUri(screenshot.uri)
+            val updatedEntity = ScreenshotEntity(
+                id = screenshot.id,
+                uri = newUri.toString(),
+                displayName = screenshot.displayName,
+                dateAdded = screenshot.dateAdded,
+                size = screenshot.size,
+                relativePath = "Pictures/Screenshots/",
+                mimeType = screenshot.mimeType,
+                categoryId = null
+            )
+            screenshotDao.insertOrUpdate(updatedEntity)
+            OverlayEventBus.postEvent(OverlayEvent.RefreshRequested)
+        }
+        result
+    }
+
     suspend fun moveBatchToCategory(
         screenshots: List<ScreenshotUiModel>,
         category: CategoryUiModel,

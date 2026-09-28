@@ -3,7 +3,9 @@ package com.screenarc.app
 import androidx.compose.ui.geometry.Offset
 import com.screenarc.app.model.ArcDesignStyle
 import com.screenarc.app.model.CategoryUiModel
+import com.screenarc.app.ui.overlay.Handedness
 import com.screenarc.app.ui.overlay.HoverTarget
+import com.screenarc.app.ui.overlay.OverlayEdgeAnchor
 import com.screenarc.app.ui.overlay.RadialMenuGeometry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -53,6 +55,99 @@ class RadialArcRedesignAndDuplicatePreventionTest {
         val dialLayout = RadialMenuGeometry.calculateLayout(categories, radiusPx, ArcDesignStyle.DIAL)
         assertEquals(4, dialLayout.categoriesWithPos.size)
         assertTrue("Dial Arc delete pos y should be positive", dialLayout.deletePos.y > 0)
+    }
+
+    @Test
+    fun testCategoryOrderingByUsageAndSuggested() {
+        val cat1 = CategoryUiModel(1L, "Tech", "Tech", orderIndex = 0)
+        val cat2 = CategoryUiModel(2L, "Docs", "Docs", orderIndex = 1)
+        val cat3 = CategoryUiModel(3L, "Memes", "Memes", orderIndex = 2)
+        val cat4 = CategoryUiModel(4L, "Receipts", "Receipts", orderIndex = 3)
+
+        val usageMap = mapOf(
+            1L to 5,
+            2L to 12,
+            3L to 1,
+            4L to 20
+        )
+
+        // With no suggested category, Receipts (20) -> Docs (12) -> Tech (5) -> Memes (1)
+        val orderedByUsage = RadialMenuGeometry.orderCategories(listOf(cat1, cat2, cat3, cat4), usageMap)
+        assertEquals(4L, orderedByUsage[0].id)
+        assertEquals(2L, orderedByUsage[1].id)
+        assertEquals(1L, orderedByUsage[2].id)
+        assertEquals(3L, orderedByUsage[3].id)
+
+        // With suggested category (e.g. Memes = 3L), it should jump to position 0
+        val orderedWithSuggestion = RadialMenuGeometry.orderCategories(
+            listOf(cat1, cat2, cat3, cat4),
+            usageMap,
+            suggestedCategoryId = 3L
+        )
+        assertEquals(3L, orderedWithSuggestion[0].id)
+        assertEquals(4L, orderedWithSuggestion[1].id)
+        assertEquals(2L, orderedWithSuggestion[2].id)
+        assertEquals(1L, orderedWithSuggestion[3].id)
+    }
+
+    @Test
+    fun testOverflowMoreNodeWhenCategoriesExceedThreshold() {
+        // 8 categories (> 6)
+        val categories = (1..8).map { CategoryUiModel(it.toLong(), "Cat $it", "Cat_$it") }
+        val radiusPx = 300f
+
+        // When not expanded: displays top 5 + More node
+        val unexpandedLayout = RadialMenuGeometry.calculateLayout(
+            categories = categories,
+            radiusPx = radiusPx,
+            style = ArcDesignStyle.ORBIT,
+            isOverflowExpanded = false
+        )
+        assertEquals(5, unexpandedLayout.categoriesWithPos.size)
+        assertNotNull("More node should be present when total > 6 and not expanded", unexpandedLayout.morePos)
+        assertEquals(3, unexpandedLayout.overflowCategories.size)
+
+        // When expanded: dual-ring layout with all 8 categories
+        val expandedLayout = RadialMenuGeometry.calculateLayout(
+            categories = categories,
+            radiusPx = radiusPx,
+            style = ArcDesignStyle.ORBIT,
+            isOverflowExpanded = true
+        )
+        assertEquals(8, expandedLayout.categoriesWithPos.size)
+        assertTrue(expandedLayout.isDualRing)
+        assertNull("More node is replaced by full expanded categories", expandedLayout.morePos)
+    }
+
+    @Test
+    fun testHandednessAndRtlInversion() {
+        val categories = listOf(
+            CategoryUiModel(1L, "Cat 1", "Cat_1"),
+            CategoryUiModel(2L, "Cat 2", "Cat_2")
+        )
+        val radiusPx = 200f
+
+        val rightHandedLayout = RadialMenuGeometry.calculateLayout(
+            categories = categories,
+            radiusPx = radiusPx,
+            style = ArcDesignStyle.ORBIT,
+            handedness = Handedness.RIGHT_HANDED
+        )
+
+        val leftHandedLayout = RadialMenuGeometry.calculateLayout(
+            categories = categories,
+            radiusPx = radiusPx,
+            style = ArcDesignStyle.ORBIT,
+            handedness = Handedness.LEFT_HANDED
+        )
+
+        // In right handed, first category is leftward (x < 0)
+        val rightX = rightHandedLayout.categoriesWithPos.first().second.x
+        // In left handed, first category is rightward (x > 0)
+        val leftX = leftHandedLayout.categoriesWithPos.first().second.x
+
+        assertTrue("Right handed layout should start towards left", rightX < 0)
+        assertTrue("Left handed layout should start towards right", leftX > 0)
     }
 
     @Test

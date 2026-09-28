@@ -29,8 +29,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -41,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
@@ -50,6 +54,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -57,6 +62,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.screenarc.app.model.ArcDesignStyle
@@ -79,15 +85,24 @@ fun ArcMenuLayout(
     hoveredCategoryId: Long?,
     isDeleteHovered: Boolean,
     isShareHovered: Boolean,
+    isMoreHovered: Boolean = false,
+    isOverflowExpanded: Boolean = false,
+    suggestedCategoryId: Long? = null,
+    handedness: Handedness = Handedness.AUTO,
+    edgeAnchor: OverlayEdgeAnchor = OverlayEdgeAnchor.AUTO,
     arcDesignStyle: ArcDesignStyle,
     onCategoryClick: (CategoryUiModel) -> Unit,
     onDeleteClick: () -> Unit,
     onShareClick: () -> Unit,
+    onMoreClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val isRtl = layoutDirection == LayoutDirection.Rtl
     val radiusPx = with(density) { radiusDp.toPx() }
 
+    // Spring open / close animation (~220-280ms)
     val animatedProgress by animateFloatAsState(
         targetValue = if (isExpanded) 1f else 0f,
         animationSpec = spring(
@@ -97,7 +112,7 @@ fun ArcMenuLayout(
         label = "ArcExpansionProgress"
     )
 
-    val infiniteTransition = rememberInfiniteTransition(label = "WarningPulse")
+    val infiniteTransition = rememberInfiniteTransition(label = "SuggestedAndWarningPulse")
     val deletePulseScale by infiniteTransition.animateFloat(
         initialValue = 1.0f,
         targetValue = 1.08f,
@@ -108,9 +123,28 @@ fun ArcMenuLayout(
         label = "DeletePulse"
     )
 
+    val suggestedGlowPulse by infiniteTransition.animateFloat(
+        initialValue = 0.95f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "SuggestedGlowPulse"
+    )
+
     if (animatedProgress > 0.01f) {
-        val layout = remember(categories, radiusPx, arcDesignStyle) {
-            RadialMenuGeometry.calculateLayout(categories, radiusPx, arcDesignStyle)
+        val layout = remember(categories, radiusPx, arcDesignStyle, isRtl, handedness, edgeAnchor, suggestedCategoryId, isOverflowExpanded) {
+            RadialMenuGeometry.calculateLayout(
+                categories = categories,
+                radiusPx = radiusPx,
+                style = arcDesignStyle,
+                isRtl = isRtl,
+                handedness = handedness,
+                edgeAnchor = edgeAnchor,
+                suggestedCategoryId = suggestedCategoryId,
+                isOverflowExpanded = isOverflowExpanded
+            )
         }
 
         val primaryColor = MaterialTheme.colorScheme.primary
@@ -150,12 +184,17 @@ fun ArcMenuLayout(
                                 pathEffect = PathEffect.dashPathEffect(floatArrayOf(16f, 12f))
                             )
                         )
-                        drawCircle(
-                            color = outlineColor.copy(alpha = 0.06f * animatedProgress),
-                            radius = currentRadius * 1.18f,
-                            center = centerOffset,
-                            style = Stroke(width = 1.dp.toPx())
-                        )
+                        if (layout.isDualRing) {
+                            drawCircle(
+                                color = primaryColor.copy(alpha = 0.16f * animatedProgress),
+                                radius = currentRadius * 1.38f,
+                                center = centerOffset,
+                                style = Stroke(
+                                    width = 1.5.dp.toPx(),
+                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 14f))
+                                )
+                            )
+                        }
 
                         // Subtle orbital tick markers
                         for (i in 0 until 12) {
@@ -179,7 +218,7 @@ fun ArcMenuLayout(
                     }
 
                     ArcDesignStyle.FAN -> {
-                        // Glowing 180° Upper Fan Ribbon Track
+                        // Glowing Upper Fan Ribbon Track
                         drawArc(
                             brush = Brush.sweepGradient(
                                 listOf(
@@ -195,6 +234,17 @@ fun ArcMenuLayout(
                             size = androidx.compose.ui.geometry.Size(currentRadius * 2, currentRadius * 2),
                             style = Stroke(width = 18.dp.toPx(), cap = StrokeCap.Round)
                         )
+                        if (layout.isDualRing) {
+                            drawArc(
+                                color = primaryColor.copy(alpha = 0.18f * animatedProgress),
+                                startAngle = 180f,
+                                sweepAngle = 180f,
+                                useCenter = false,
+                                topLeft = centerOffset - Offset(currentRadius * 1.35f, currentRadius * 1.35f),
+                                size = androidx.compose.ui.geometry.Size(currentRadius * 2.7f, currentRadius * 2.7f),
+                                style = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Round)
+                            )
+                        }
                         // Bottom Delete cradle arc
                         drawArc(
                             color = errorColor.copy(alpha = 0.25f * animatedProgress),
@@ -219,7 +269,6 @@ fun ArcMenuLayout(
                             center = centerOffset,
                             style = Stroke(width = 2.dp.toPx())
                         )
-                        // Delete sector highlight in dial
                         drawArc(
                             color = errorColor.copy(alpha = if (isDeleteHovered) 0.35f else 0.14f * animatedProgress),
                             startAngle = 65f,
@@ -250,6 +299,7 @@ fun ArcMenuLayout(
                     val activeTargetPoint: Offset? = when {
                         isDeleteHovered -> centerOffset + layout.deletePos * animatedProgress
                         isShareHovered -> layout.sharePos?.let { centerOffset + it * animatedProgress }
+                        isMoreHovered -> layout.morePos?.let { centerOffset + it * animatedProgress }
                         hoveredCategoryId != null -> {
                             val hoveredPair = layout.categoriesWithPos.find { it.first.id == hoveredCategoryId }
                             hoveredPair?.let { centerOffset + it.second * animatedProgress }
@@ -259,8 +309,9 @@ fun ArcMenuLayout(
 
                     if (activeTargetPoint != null) {
                         val beamColor = when {
-                            isDeleteHovered -> Color(0xFFFF1744) // Bright warning crimson red
+                            isDeleteHovered -> Color(0xFFFF1744) // Warning crimson
                             isShareHovered -> Color(0xFF29B6F6) // Cyan share beam
+                            isMoreHovered -> primaryColor
                             else -> {
                                 val cat = layout.categoriesWithPos.find { it.first.id == hoveredCategoryId }?.first
                                 cat?.composeColor ?: primaryColor
@@ -275,7 +326,7 @@ fun ArcMenuLayout(
                             strokeWidth = 9.dp.toPx(),
                             cap = StrokeCap.Round
                         )
-                        // Crisp core energy beam
+                        // Core laser beam
                         drawLine(
                             color = beamColor,
                             start = draggedScreenPoint,
@@ -284,7 +335,7 @@ fun ArcMenuLayout(
                             cap = StrokeCap.Round
                         )
                     } else {
-                        // Elastic rubber-band guideline to origin when dragging freely
+                        // Elastic tether to origin
                         drawLine(
                             color = primaryColor.copy(alpha = 0.22f),
                             start = centerOffset,
@@ -300,6 +351,7 @@ fun ArcMenuLayout(
             // 2. Category Drop Target Pods
             layout.categoriesWithPos.forEach { (category, baseOffset) ->
                 val isHovered = hoveredCategoryId == category.id
+                val isSuggested = layout.suggestedCategoryId == category.id
 
                 val extraDistance = if (isHovered) with(density) { 16.dp.toPx() } else 0f
                 val distanceMultiplier = (radiusPx + extraDistance) / radiusPx
@@ -307,7 +359,11 @@ fun ArcMenuLayout(
                 val yPx = baseOffset.y * distanceMultiplier * animatedProgress
 
                 val chipScale by animateFloatAsState(
-                    targetValue = if (isHovered) 1.45f else 1.0f,
+                    targetValue = when {
+                        isHovered -> 1.45f
+                        isSuggested -> 1.08f * suggestedGlowPulse
+                        else -> 1.0f
+                    },
                     animationSpec = spring(
                         dampingRatio = Spring.DampingRatioMediumBouncy,
                         stiffness = Spring.StiffnessMedium
@@ -316,7 +372,7 @@ fun ArcMenuLayout(
                 )
 
                 val chipElevation by animateDpAsState(
-                    targetValue = if (isHovered) 16.dp else 4.dp,
+                    targetValue = if (isHovered) 16.dp else if (isSuggested) 8.dp else 4.dp,
                     animationSpec = tween(150),
                     label = "ChipElevation_${category.id}"
                 )
@@ -325,6 +381,7 @@ fun ArcMenuLayout(
                     isHovered -> {
                         if (dynamicPaletteEnabled) paletteColors.vibrantLight else category.composeColor
                     }
+                    isSuggested -> category.composeColor.copy(alpha = 0.28f)
                     dynamicPaletteEnabled -> category.composeColor.copy(alpha = 0.24f)
                     else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f)
                 }
@@ -342,6 +399,7 @@ fun ArcMenuLayout(
 
                 val targetBorderColor = when {
                     isHovered -> Color.White
+                    isSuggested -> category.composeColor
                     else -> category.composeColor.copy(alpha = 0.65f)
                 }
 
@@ -357,18 +415,30 @@ fun ArcMenuLayout(
                         ) {
                             onCategoryClick(category)
                         }
+                        .drawBehind {
+                            if (isHovered || isSuggested) {
+                                drawCircle(
+                                    brush = Brush.radialGradient(
+                                        colors = listOf(category.composeColor.copy(alpha = if (isHovered) 0.45f else 0.25f), Color.Transparent),
+                                        radius = size.maxDimension * 0.85f
+                                    )
+                                )
+                            }
+                        }
                         .semantics {
                             contentDescription = if (isHovered) {
                                 "${category.name} category highlighted, release to drop"
+                            } else if (isSuggested) {
+                                "${category.name} category, recommended suggestion"
                             } else {
                                 "${category.name} category, drop target"
                             }
-                            stateDescription = if (isHovered) "Highlighted" else "Available"
+                            stateDescription = if (isHovered) "Highlighted" else if (isSuggested) "Suggested" else "Available"
                         },
                     shape = RoundedCornerShape(22.dp),
                     color = containerColor,
                     border = BorderStroke(
-                        width = if (isHovered) 2.5.dp else 1.2.dp,
+                        width = if (isHovered) 2.6.dp else if (isSuggested) 2.0.dp else 1.2.dp,
                         color = targetBorderColor
                     )
                 ) {
@@ -401,13 +471,23 @@ fun ArcMenuLayout(
                             Text(
                                 text = category.name,
                                 style = MaterialTheme.typography.labelLarge.copy(
-                                    fontWeight = if (isHovered) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                    fontWeight = if (isHovered || isSuggested) FontWeight.ExtraBold else FontWeight.SemiBold,
                                     fontSize = if (isHovered) 13.5.sp else 12.sp
                                 ),
                                 color = contentColor,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+
+                            if (isSuggested && !isHovered) {
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = "Suggested",
+                                    tint = category.composeColor,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
                         }
 
                         if (isHovered) {
@@ -420,12 +500,95 @@ fun ArcMenuLayout(
                                 color = contentColor.copy(alpha = 0.9f),
                                 maxLines = 1
                             )
+                        } else if (isSuggested) {
+                            Text(
+                                text = "Suggested",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                color = category.composeColor,
+                                maxLines = 1
+                            )
                         }
                     }
                 }
             }
 
-            // 3. Intuitive DELETE Drop Target Pod (Requested Explicitly)
+            // 3. Overflow "+ More" Node (When categories > 6)
+            layout.morePos?.let { mPos ->
+                val isHovered = isMoreHovered
+                val extraDistance = if (isHovered) with(density) { 16.dp.toPx() } else 0f
+                val distanceMultiplier = (radiusPx + extraDistance) / radiusPx
+                val xPx = mPos.x * distanceMultiplier * animatedProgress
+                val yPx = mPos.y * distanceMultiplier * animatedProgress
+
+                val moreScale by animateFloatAsState(
+                    targetValue = if (isHovered) 1.45f else 1.0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    label = "MoreScale"
+                )
+
+                Surface(
+                    modifier = Modifier
+                        .offset { IntOffset(xPx.roundToInt(), yPx.roundToInt()) }
+                        .scale(moreScale * animatedProgress)
+                        .shadow(if (isHovered) 16.dp else 4.dp, shape = RoundedCornerShape(22.dp), clip = false)
+                        .clip(RoundedCornerShape(22.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onMoreClick
+                        )
+                        .semantics {
+                            contentDescription = "More categories, tap or hover to expand all ${layout.overflowCategories.size + 5} categories"
+                            stateDescription = if (isHovered) "Highlighted" else "Available"
+                        },
+                    shape = RoundedCornerShape(22.dp),
+                    color = if (isHovered) primaryColor else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f),
+                    border = BorderStroke(
+                        width = if (isHovered) 2.5.dp else 1.2.dp,
+                        color = if (isHovered) Color.White else primaryColor.copy(alpha = 0.65f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = if (isHovered) Color.White else primaryColor,
+                            modifier = Modifier.size(20.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreHoriz,
+                                    contentDescription = null,
+                                    tint = if (isHovered) primaryColor else Color.White,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        Text(
+                            text = "+${layout.overflowCategories.size} More",
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = if (isHovered) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                fontSize = if (isHovered) 13.5.sp else 12.sp
+                            ),
+                            color = if (isHovered) Color.White else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+
+            // 4. Intuitive DELETE Drop Target Pod
             val deleteExtraDist = if (isDeleteHovered) with(density) { 18.dp.toPx() } else 0f
             val deleteDistMult = (radiusPx + deleteExtraDist) / radiusPx
             val delX = layout.deletePos.x * deleteDistMult * animatedProgress
@@ -508,7 +671,7 @@ fun ArcMenuLayout(
                         Spacer(modifier = Modifier.width(6.dp))
 
                         Text(
-                            text = if (isDeleteHovered) "Delete" else "Delete",
+                            text = "Delete",
                             style = MaterialTheme.typography.labelLarge.copy(
                                 fontWeight = if (isDeleteHovered) FontWeight.ExtraBold else FontWeight.SemiBold,
                                 fontSize = if (isDeleteHovered) 13.5.sp else 12.sp
@@ -532,7 +695,7 @@ fun ArcMenuLayout(
                 }
             }
 
-            // 4. Quick SHARE Drop Target Pod
+            // 5. Quick SHARE Drop Target Pod
             layout.sharePos?.let { sPos ->
                 val shareExtraDist = if (isShareHovered) with(density) { 16.dp.toPx() } else 0f
                 val shareDistMult = (radiusPx + shareExtraDist) / radiusPx

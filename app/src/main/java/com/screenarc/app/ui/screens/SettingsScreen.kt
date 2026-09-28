@@ -27,6 +27,14 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.HealthAndSafety
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ColorLens
@@ -42,6 +50,17 @@ import androidx.compose.material.icons.filled.Rule
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Vibration
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import com.screenarc.app.service.OverlayService
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -223,11 +242,15 @@ fun SettingsScreen(
                             }
                         } else {
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                rules.forEach { rule ->
+                                rules.forEachIndexed { index, rule ->
                                     RuleItemCard(
                                         rule = rule,
                                         categories = categories,
                                         isRuleRunning = uiState?.isRuleRunning == true,
+                                        canMoveUp = index > 0,
+                                        canMoveDown = index < rules.size - 1,
+                                        onMoveUp = { vm.moveRulePriority(rule.id, true) },
+                                        onMoveDown = { vm.moveRulePriority(rule.id, false) },
                                         onToggle = { isEnabled -> vm.toggleRule(rule.id, isEnabled) },
                                         onRun = { vm.runRule(rule.id) },
                                         onEdit = { ruleToEdit = rule },
@@ -402,49 +425,85 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     Text(
-                        text = "OCR Processing Mode",
+                        text = "Automatic Processing & Rules",
                         style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                    val modes = listOf(
-                        OcrProcessingMode.ASK_BEFORE_PROCESSING to "Ask before processing (Default)",
-                        OcrProcessingMode.MANUAL_ONLY to "Manual only",
-                        OcrProcessingMode.AUTOMATIC to "Process new screenshots automatically"
-                    )
-
-                    modes.forEach { (mode, title) ->
-                        val isSelected = settings.ocrProcessingMode == mode
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clickable {
-                                    settingsRepo.updateSettings { it.copy(ocrProcessingMode = mode) }
-                                }
+                    // 1. Auto Run OCR Switch
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                RadioButton(
-                                    selected = isSelected,
-                                    onClick = {
-                                        settingsRepo.updateSettings { it.copy(ocrProcessingMode = mode) }
-                                    }
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = title,
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                    ),
-                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                    text = "Auto run OCR",
+                                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
+                                )
+                                Text(
+                                    text = "Run on-device OCR in the background whenever a new screenshot is captured.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Switch(
+                                checked = settings.autoOcrEnabled,
+                                onCheckedChange = { isChecked ->
+                                    settingsRepo.updateSettings { it.copy(autoOcrEnabled = isChecked) }
+                                }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // 2. Auto Assign Categories using Rules Switch (Dependent on Auto Run OCR)
+                    val isAutoRulesEnabled = settings.autoAssignRulesEnabled
+                    val canToggleRules = settings.autoOcrEnabled
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (canToggleRules) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surfaceContainerLow,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Auto assign categories using rules",
+                                    style = MaterialTheme.typography.bodyLarge.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (canToggleRules) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                    )
+                                )
+                                Text(
+                                    text = if (canToggleRules) {
+                                        "Automatically move matching screenshots into their category folder without user intervention."
+                                    } else {
+                                        "Requires 'Auto run OCR' to be enabled."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (canToggleRules) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Switch(
+                                checked = isAutoRulesEnabled,
+                                enabled = canToggleRules,
+                                onCheckedChange = { isChecked ->
+                                    settingsRepo.updateSettings { it.copy(autoAssignRulesEnabled = isChecked) }
+                                }
+                            )
                         }
                     }
                 }
@@ -593,6 +652,20 @@ fun SettingsScreen(
                                 Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text("Process & Index All Images")
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            OutlinedButton(
+                                onClick = {
+                                    vm.runAutoRulesForUncategorized()
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Icon(Icons.Default.Rule, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Run Active Rules on Existing Screenshots")
                             }
                         }
 
@@ -880,6 +953,190 @@ fun SettingsScreen(
                 }
             }
         }
+
+        // 6. Reliability & System Health Diagnostics Card
+        item {
+            val context = LocalContext.current
+            val hasOverlayPermission = remember(settings) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    Settings.canDrawOverlays(context)
+                } else true
+            }
+            val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as? PowerManager }
+            val isBatteryIgnoring = remember(settings) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && powerManager != null) {
+                    powerManager.isIgnoringBatteryOptimizations(context.packageName)
+                } else true
+            }
+            val hasNotificationPermission = remember(settings) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+                } else true
+            }
+
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                )
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.HealthAndSafety, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Reliability & Diagnostics",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "Ensure background service and listeners have necessary permissions to detect and organize screenshots seamlessly across reboots and battery saver modes.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Background Service Toggle
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Overlay Background Service", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                                }
+                                Text(
+                                    text = if (settings.isServiceEnabled) "Active • Listening for new screenshots" else "Inactive • Screenshots will not show overlay",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (settings.isServiceEnabled) Color(0xFF00C853) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = settings.isServiceEnabled,
+                                onCheckedChange = { isChecked ->
+                                    settingsRepo.updateSettings { it.copy(isServiceEnabled = isChecked) }
+                                    if (isChecked) {
+                                        OverlayService.startService(context)
+                                    } else {
+                                        val stopIntent = Intent(context, OverlayService::class.java).apply {
+                                            action = OverlayService.ACTION_STOP_SERVICE
+                                        }
+                                        context.startService(stopIntent)
+                                    }
+                                }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // 1. Overlay Permission Check
+                    DiagnosticItemRow(
+                        title = "Draw Over Apps (Overlay)",
+                        subtitle = if (hasOverlayPermission) "Granted • Radial arc can float over any app" else "Missing • Required to show radial overlay",
+                        isOk = hasOverlayPermission,
+                        actionLabel = "Grant",
+                        onAction = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                val intent = Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:${context.packageName}")
+                                ).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
+                                context.startActivity(intent)
+                            }
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // 2. Battery Optimization Check
+                    DiagnosticItemRow(
+                        title = "Battery Optimization",
+                        subtitle = if (isBatteryIgnoring) "Unrestricted • System will not kill background listener" else "Optimized • System may delay detection when sleeping",
+                        isOk = isBatteryIgnoring,
+                        actionLabel = "Exempt",
+                        onAction = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                try {
+                                    val intent = Intent(
+                                        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                        Uri.parse("package:${context.packageName}")
+                                    ).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    val fallback = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                    }
+                                    context.startActivity(fallback)
+                                }
+                            }
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // 3. Notification Permission Check
+                    DiagnosticItemRow(
+                        title = "Foreground Notifications",
+                        subtitle = if (hasNotificationPermission) "Granted • Keeps service persistent and stable" else "Disabled • Required for foreground reliability",
+                        isOk = hasNotificationPermission,
+                        actionLabel = "Settings",
+                        onAction = {
+                            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            try {
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                val details = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")).apply {
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                context.startActivity(details)
+                            }
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Quick Test / Demo Trigger Button
+                    OutlinedButton(
+                        onClick = {
+                            val demoIntent = Intent(context, OverlayService::class.java).apply {
+                                action = OverlayService.ACTION_TRIGGER_DEMO
+                                putExtra(OverlayService.EXTRA_DEMO_LABEL, "Live Test Screenshot")
+                                putExtra(OverlayService.EXTRA_DEMO_COLOR, 0xFF6750A4.toInt())
+                            }
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                context.startForegroundService(demoIntent)
+                            } else {
+                                context.startService(demoIntent)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Trigger Simulated Screenshot (Test Overlay)")
+                    }
+                }
+            }
+        }
     }
 
     // Add / Edit Rule Dialog
@@ -907,6 +1164,10 @@ fun RuleItemCard(
     rule: AutoCategorizationRule,
     categories: List<CategoryUiModel>,
     isRuleRunning: Boolean,
+    canMoveUp: Boolean = true,
+    canMoveDown: Boolean = true,
+    onMoveUp: () -> Unit = {},
+    onMoveDown: () -> Unit = {},
     onToggle: (Boolean) -> Unit,
     onRun: () -> Unit,
     onEdit: () -> Unit,
@@ -929,6 +1190,20 @@ fun RuleItemCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Priority Badge
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.padding(end = 6.dp)
+                        ) {
+                            Text(
+                                text = "#${rule.priority + 1}",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+
                         Text(
                             text = rule.name,
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
@@ -964,16 +1239,36 @@ fun RuleItemCard(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Play / Run Button beside each rule!
+                    // Priority Up Button
+                    IconButton(
+                        onClick = onMoveUp,
+                        enabled = canMoveUp,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Text("▲", fontSize = 11.sp, color = if (canMoveUp) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)
+                    }
+
+                    // Priority Down Button
+                    IconButton(
+                        onClick = onMoveDown,
+                        enabled = canMoveDown,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Text("▼", fontSize = 11.sp, color = if (canMoveDown) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    // Play / Run Button
                     FilledTonalIconButton(
                         onClick = onRun,
                         enabled = !isRuleRunning && rule.isEnabled,
-                        modifier = Modifier.size(34.dp)
+                        modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.PlayArrow,
                             contentDescription = "Run Rule",
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(16.dp),
                             tint = if (rule.isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -991,23 +1286,81 @@ fun RuleItemCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Keywords chips
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                rule.keywords.forEach { kw ->
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        modifier = Modifier.padding(vertical = 2.dp)
+            // Primary Keywords chips
+            if (rule.primaryKeywords.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
+                    Text(
+                        text = "PRIMARY:",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.ExtraBold),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
-                        Text(
-                            text = "#$kw",
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
+                        rule.primaryKeywords.forEach { kw ->
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
+                            ) {
+                                Text(
+                                    text = "#$kw",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Secondary Keywords chips
+            if (rule.secondaryKeywords.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
+                    Text(
+                        text = "SECONDARY (≥${rule.secondaryThreshold}):",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        rule.secondaryKeywords.forEach { kw ->
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+                            ) {
+                                Text(
+                                    text = "#$kw",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Flags / Options summary
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (rule.matchWholeWord) {
+                    Surface(shape = RoundedCornerShape(4.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+                        Text("Whole-word", style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.5.sp), modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                    }
+                }
+                if (rule.isRegexEnabled) {
+                    Surface(shape = RoundedCornerShape(4.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
+                        Text("Regex", style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.5.sp), color = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
                     }
                 }
             }
@@ -1059,7 +1412,7 @@ fun RuleItemCard(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun RuleEditorDialog(
     initialRule: AutoCategorizationRule?,
@@ -1068,139 +1421,328 @@ fun RuleEditorDialog(
     onSave: (AutoCategorizationRule) -> Unit
 ) {
     var name by remember { mutableStateOf(initialRule?.name ?: "") }
-    var keywordsString by remember { mutableStateOf(initialRule?.keywords?.joinToString(", ") ?: "") }
+    var primaryKeywordsString by remember { mutableStateOf(initialRule?.primaryKeywords?.joinToString(", ") ?: "") }
+    var secondaryKeywordsString by remember { mutableStateOf(initialRule?.secondaryKeywords?.joinToString(", ") ?: "") }
     var selectedCategoryId by remember {
         mutableStateOf(initialRule?.targetCategoryId ?: categories.firstOrNull()?.id ?: 1L)
     }
+    var priority by remember { mutableStateOf(initialRule?.priority ?: 0) }
+    var secondaryThreshold by remember { mutableStateOf(initialRule?.secondaryThreshold ?: 2) }
+    var matchWholeWord by remember { mutableStateOf(initialRule?.matchWholeWord ?: false) }
+    var isRegexEnabled by remember { mutableStateOf(initialRule?.isRegexEnabled ?: false) }
     var onlyNewScreenshots by remember { mutableStateOf(initialRule?.onlyNewScreenshots ?: true) }
     var isEnabled by remember { mutableStateOf(initialRule?.isEnabled ?: true) }
     var categoryDropdownExpanded by remember { mutableStateOf(false) }
 
+    // Test this rule sample text
+    var sampleTestText by remember { mutableStateOf("") }
+
     val selectedCategory = categories.find { it.id == selectedCategoryId } ?: categories.firstOrNull()
+
+    // Transient rule instance for live testing
+    val currentPreviewRule = remember(
+        name, primaryKeywordsString, secondaryKeywordsString, selectedCategoryId,
+        priority, secondaryThreshold, matchWholeWord, isRegexEnabled, onlyNewScreenshots, isEnabled
+    ) {
+        val pList = primaryKeywordsString.split(",").map { it.trim() }.filter { it.isNotBlank() }
+        val sList = secondaryKeywordsString.split(",").map { it.trim() }.filter { it.isNotBlank() }
+        AutoCategorizationRule(
+            id = initialRule?.id ?: "preview",
+            name = name,
+            primaryKeywords = pList,
+            secondaryKeywords = sList,
+            targetCategoryId = selectedCategory?.id ?: 1L,
+            targetCategoryName = selectedCategory?.name ?: "Category",
+            priority = priority,
+            isEnabled = isEnabled,
+            onlyNewScreenshots = onlyNewScreenshots,
+            matchWholeWord = matchWholeWord,
+            isRegexEnabled = isRegexEnabled,
+            secondaryThreshold = secondaryThreshold
+        )
+    }
+
+    val testEvaluation = remember(currentPreviewRule, sampleTestText) {
+        if (sampleTestText.isNotBlank()) {
+            currentPreviewRule.evaluateText(sampleTestText)
+        } else {
+            null
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(if (initialRule == null) "Create Auto-Categorization Rule" else "Edit Categorization Rule")
+            Text(if (initialRule == null) "Create Priority Categorization Rule" else "Edit Categorization Rule")
         },
         text = {
-            Column(
+            LazyColumn(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Rule Name") },
-                    placeholder = { Text("e.g. Movies & Cinema, Tech Repos") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                OutlinedTextField(
-                    value = keywordsString,
-                    onValueChange = { keywordsString = it },
-                    label = { Text("Keywords (comma separated)") },
-                    placeholder = { Text("e.g. movie, netflix, cinema, imdb") },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                item {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Rule Name") },
+                        placeholder = { Text("e.g. Movie & Cinema, Tech Repos") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
 
                 // Category Selector
-                Text("Target Category", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+                item {
+                    Text("Target Category", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
 
-                ExposedDropdownMenuBox(
-                    expanded = categoryDropdownExpanded,
-                    onExpandedChange = { categoryDropdownExpanded = it }
-                ) {
-                    OutlinedTextField(
-                        value = selectedCategory?.name ?: "Select Category",
-                        onValueChange = {},
-                        readOnly = true,
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryDropdownExpanded) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                    )
-
-                    ExposedDropdownMenu(
+                    ExposedDropdownMenuBox(
                         expanded = categoryDropdownExpanded,
-                        onDismissRequest = { categoryDropdownExpanded = false }
+                        onExpandedChange = { categoryDropdownExpanded = it }
                     ) {
-                        categories.forEach { cat ->
-                            DropdownMenuItem(
-                                text = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(12.dp)
-                                                .clip(CircleShape)
-                                                .background(cat.composeColor)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(cat.name)
+                        OutlinedTextField(
+                            value = selectedCategory?.name ?: "Select Category",
+                            onValueChange = {},
+                            readOnly = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryDropdownExpanded) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                        )
+
+                        ExposedDropdownMenu(
+                            expanded = categoryDropdownExpanded,
+                            onDismissRequest = { categoryDropdownExpanded = false }
+                        ) {
+                            categories.forEach { cat ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(12.dp)
+                                                    .clip(CircleShape)
+                                                    .background(cat.composeColor)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(cat.name)
+                                        }
+                                    },
+                                    onClick = {
+                                        selectedCategoryId = cat.id
+                                        categoryDropdownExpanded = false
                                     }
-                                },
-                                onClick = {
-                                    selectedCategoryId = cat.id
-                                    categoryDropdownExpanded = false
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                 }
 
-                // Dedicated Checkbox: Process Only New Screenshots
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { onlyNewScreenshots = !onlyNewScreenshots }
-                        .padding(vertical = 4.dp)
-                ) {
-                    Checkbox(
-                        checked = onlyNewScreenshots,
-                        onCheckedChange = { onlyNewScreenshots = it }
+                // Primary Keywords (High Priority)
+                item {
+                    OutlinedTextField(
+                        value = primaryKeywordsString,
+                        onValueChange = { primaryKeywordsString = it },
+                        label = { Text("Primary Keywords (High Priority)") },
+                        placeholder = { Text("e.g. movie, netflix, cinema, imdb") },
+                        supportingText = { Text("Any match routes to this category immediately", fontSize = 10.sp) },
+                        modifier = Modifier.fillMaxWidth()
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Column {
-                        Text("Process only new screenshots", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
-                        Text("Skip screenshots already sorted into a category", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+
+                // Secondary Keywords (Supporting signals)
+                item {
+                    OutlinedTextField(
+                        value = secondaryKeywordsString,
+                        onValueChange = { secondaryKeywordsString = it },
+                        label = { Text("Secondary Keywords (Supporting Signals)") },
+                        placeholder = { Text("e.g. trailer, director, cast, streaming") },
+                        supportingText = { Text("Supporting matches break ties and route if threshold met", fontSize = 10.sp) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                // Secondary Threshold Slider
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Secondary Match Threshold: $secondaryThreshold", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold))
+                        Text("Requires ≥$secondaryThreshold matches", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Slider(
+                        value = secondaryThreshold.toFloat(),
+                        onValueChange = { secondaryThreshold = it.toInt() },
+                        valueRange = 1f..5f,
+                        steps = 3
+                    )
+                }
+
+                // Options switches
+                item {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Whole-word matching", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold))
+                            Text("Matches exact word boundaries (avoids partial substrings)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = matchWholeWord, onCheckedChange = { matchWholeWord = it })
                     }
                 }
 
-                // Rule Active Switch
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Rule Enabled", style = MaterialTheme.typography.bodyMedium)
-                    Switch(checked = isEnabled, onCheckedChange = { isEnabled = it })
+                item {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Regex / pattern mode", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold))
+                            Text("Evaluate keywords as regular expressions", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = isRegexEnabled, onCheckedChange = { isRegexEnabled = it })
+                    }
+                }
+
+                item {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Process only new screenshots", style = MaterialTheme.typography.bodySmall)
+                        Checkbox(checked = onlyNewScreenshots, onCheckedChange = { onlyNewScreenshots = it })
+                    }
+                }
+
+                item {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Rule Enabled", style = MaterialTheme.typography.bodySmall)
+                        Switch(checked = isEnabled, onCheckedChange = { isEnabled = it })
+                    }
+                }
+
+                // -------------------------------------------------------------
+                // Interactive "Test this rule" Sandbox Box
+                // -------------------------------------------------------------
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Test this rule (Live Sandbox)",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Type or paste sample OCR text to see if and why this rule matches.",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            OutlinedTextField(
+                                value = sampleTestText,
+                                onValueChange = { sampleTestText = it },
+                                placeholder = { Text("Paste sample text here, e.g., 'Watch Inception on Netflix tonight'...", fontSize = 11.sp) },
+                                modifier = Modifier.fillMaxWidth().height(80.dp),
+                                textStyle = MaterialTheme.typography.bodySmall
+                            )
+
+                            if (testEvaluation != null) {
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (testEvaluation.isAssigned) Color(0x224CAF50) else Color(0x22E53935),
+                                    border = BorderStroke(1.dp, if (testEvaluation.isAssigned) Color(0xFF4CAF50) else Color(0xFFE53935)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = if (testEvaluation.isAssigned) "✔ MATCH -> Assigned to ${selectedCategory?.name}" else "✖ NO MATCH",
+                                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                                color = if (testEvaluation.isAssigned) Color(0xFF2E7D32) else Color(0xFFC62828)
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                        Text(
+                                            text = testEvaluation.reason,
+                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+
+                                        if (testEvaluation.matchedPrimaryKeywords.isNotEmpty()) {
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "Matched Primaries: ${testEvaluation.matchedPrimaryKeywords.joinToString(", ")}",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+
+                                        if (testEvaluation.matchedSecondaryKeywords.isNotEmpty()) {
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = "Matched Secondaries: ${testEvaluation.matchedSecondaryKeywords.joinToString(", ")}",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                color = MaterialTheme.colorScheme.secondary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    val kwList = keywordsString.split(",")
-                        .map { it.trim() }
-                        .filter { it.isNotBlank() }
+                    val pList = primaryKeywordsString.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                    val sList = secondaryKeywordsString.split(",").map { it.trim() }.filter { it.isNotBlank() }
 
                     val finalRule = AutoCategorizationRule(
                         id = initialRule?.id ?: java.util.UUID.randomUUID().toString(),
                         name = if (name.isBlank()) "Categorization Rule" else name.trim(),
-                        keywords = kwList,
+                        primaryKeywords = pList,
+                        secondaryKeywords = sList,
                         targetCategoryId = selectedCategory?.id ?: 1L,
                         targetCategoryName = selectedCategory?.name ?: "Tech",
+                        priority = priority,
                         isEnabled = isEnabled,
                         onlyNewScreenshots = onlyNewScreenshots,
+                        matchWholeWord = matchWholeWord,
+                        isRegexEnabled = isRegexEnabled,
+                        secondaryThreshold = secondaryThreshold,
                         matchCount = initialRule?.matchCount ?: 0,
                         lastRunTimestamp = initialRule?.lastRunTimestamp
                     )
                     onSave(finalRule)
                 },
-                enabled = name.isNotBlank() && keywordsString.isNotBlank()
+                enabled = name.isNotBlank() && (primaryKeywordsString.isNotBlank() || secondaryKeywordsString.isNotBlank())
             ) {
                 Text("Save Rule")
             }
@@ -1210,3 +1752,60 @@ fun RuleEditorDialog(
         }
     )
 }
+
+@Composable
+fun DiagnosticItemRow(
+    title: String,
+    subtitle: String,
+    isOk: Boolean,
+    actionLabel: String,
+    onAction: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = if (isOk) Icons.Default.CheckCircle else Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = if (isOk) Color(0xFF00C853) else Color(0xFFFFB300),
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            if (!isOk) {
+                Spacer(modifier = Modifier.width(8.dp))
+                FilledTonalButton(
+                    onClick = onAction,
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Text(actionLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+

@@ -40,13 +40,13 @@ class ScreenshotObserver(
 
         debounceJob?.cancel()
         debounceJob = scope.launch(Dispatchers.IO) {
-            // Small debounce to let screenshot writer finish flushing image data
-            delay(500)
-            checkLatestScreenshot()
+            // Small initial debounce to let screenshot writer finish flushing image data
+            delay(350)
+            checkLatestScreenshot(attempt = 1)
         }
     }
 
-    private suspend fun checkLatestScreenshot() {
+    private suspend fun checkLatestScreenshot(attempt: Int = 1) {
         val projection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             arrayOf(
                 MediaStore.Images.Media._ID,
@@ -100,7 +100,13 @@ class ScreenshotObserver(
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         val isPendingIndex = it.getColumnIndex(MediaStore.Images.Media.IS_PENDING)
                         if (isPendingIndex != -1 && it.getInt(isPendingIndex) == 1) {
-                            Log.d(TAG, "Screenshot is still pending/writing, skipping")
+                            Log.d(TAG, "Screenshot is still pending/writing (attempt $attempt), retrying...")
+                            if (attempt < 4) {
+                                scope.launch(Dispatchers.IO) {
+                                    delay(250L * attempt)
+                                    checkLatestScreenshot(attempt + 1)
+                                }
+                            }
                             return
                         }
                     }
@@ -111,6 +117,16 @@ class ScreenshotObserver(
                     val size = it.getLong(sizeColumn)
                     val mime = it.getString(mimeColumn) ?: "image/png"
                     val path = it.getString(pathColumn) ?: ""
+
+                    // If file is 0 bytes, it might still be flushing to storage
+                    if (size <= 0 && attempt < 4) {
+                        Log.d(TAG, "Screenshot size is 0 bytes (attempt $attempt), scheduling retry...")
+                        scope.launch(Dispatchers.IO) {
+                            delay(250L * attempt)
+                            checkLatestScreenshot(attempt + 1)
+                        }
+                        return
+                    }
 
                     // Check if already processed
                     val contentUri = ContentUris.withAppendedId(collection, id)
@@ -137,7 +153,7 @@ class ScreenshotObserver(
 
                     // Verify if it's a screenshot
                     val currentTimeSec = System.currentTimeMillis() / 1000
-                    val isRecent = (currentTimeSec - dateAdded) < 35 // within last 35 seconds
+                    val isRecent = (currentTimeSec - dateAdded) < 45 // within last 45 seconds
                     val isScreenshotPath = path.contains("Screenshots", ignoreCase = true)
                     val isScreenshotName = name.contains("Screenshot", ignoreCase = true)
 

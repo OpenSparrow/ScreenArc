@@ -36,7 +36,8 @@ data class ScreenshotWithOcrAndCategory(
             categoryName = category?.name,
             ocrStatus = ocrText?.processingStatus ?: screenshot.ocrStatus,
             recognizedText = ocrText?.recognizedText,
-            normalizedText = ocrText?.normalizedText
+            normalizedText = ocrText?.normalizedText,
+            blocks = com.screenarc.app.data.OcrRepositoryImpl.parseBlocksFromJson(ocrText?.blocksJson)
         )
     }
 }

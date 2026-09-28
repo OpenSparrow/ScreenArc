@@ -17,7 +17,8 @@ data class ScreenshotUiModel(
     val recognizedText: String? = null,
     val normalizedText: String? = null,
     val bitmapPreview: Bitmap? = null,
-    val paletteColors: DynamicPaletteColors = DynamicPaletteColors()
+    val paletteColors: DynamicPaletteColors = DynamicPaletteColors(),
+    val blocks: List<OcrBlock> = emptyList()
 ) {
     val contentUri: Uri
         get() = Uri.parse(uri)

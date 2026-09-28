@@ -599,10 +599,17 @@ fun ScreenshotsScreen(
 
     // Fullscreen Image Viewer with Visual OCR Boxes
     screenshotForImageViewer?.let { item ->
-        val blocks = OcrRepositoryImpl.parseBlocksFromJson(uiState.activeOcrResult?.blocks?.let { null })
+        val blocks = if (uiState.activeOcrResult?.screenshotUri == item.uri && !uiState.activeOcrResult?.blocks.isNullOrEmpty()) {
+            uiState.activeOcrResult!!.blocks
+        } else if (item.blocks.isNotEmpty()) {
+            item.blocks
+        } else {
+            emptyList()
+        }
         OcrOverlayImageViewer(
             screenshot = item,
             blocks = blocks,
+            searchQuery = query.text.ifBlank { null },
             onDismiss = { screenshotForImageViewer = null }
         )
     }
