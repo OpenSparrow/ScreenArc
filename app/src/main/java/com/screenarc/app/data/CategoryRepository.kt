@@ -107,6 +107,26 @@ class CategoryRepository(private val context: Context) {
         refreshOverlayCategories()
     }
 
+    suspend fun importCategories(importedCategories: List<CategoryUiModel>) = withContext(Dispatchers.IO) {
+        val existing = categoryDao.getAllCategories()
+        for (imported in importedCategories) {
+            val match = existing.find { it.name.equals(imported.name, ignoreCase = true) }
+            if (match == null) {
+                val entity = CategoryEntity(
+                    name = imported.name.trim(),
+                    subfolderName = imported.subfolderName.trim(),
+                    iconName = imported.iconName,
+                    colorHex = imported.colorHex,
+                    isDefault = false,
+                    orderIndex = existing.size
+                )
+                categoryDao.insertCategory(entity)
+                createCategoryDirectory(imported.subfolderName.trim())
+            }
+        }
+        refreshOverlayCategories()
+    }
+
     suspend fun resetToDefaults() = withContext(Dispatchers.IO) {
         categoryDao.deleteAllCategories()
         categoryDao.insertCategories(CategoryEntity.DEFAULT_ENTITIES)

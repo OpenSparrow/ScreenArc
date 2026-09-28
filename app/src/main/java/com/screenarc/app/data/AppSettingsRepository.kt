@@ -14,6 +14,11 @@ enum class OcrProcessingMode {
     AUTOMATIC
 }
 
+enum class UiDesignStyle(val id: String, val displayName: String, val subtitle: String) {
+    MATERIAL("material", "Material UI", "Clean Material 3 surfaces with standard elevation and borders"),
+    GLASSMORPHISM("glassmorphism", "Glassmorphism", "Frosted glass acrylic aesthetic with translucent blur highlights")
+}
+
 data class AppSettings(
     val isServiceEnabled: Boolean = false,
     val bubbleSizeDp: Int = 64,
@@ -28,7 +33,8 @@ data class AppSettings(
     val arcDesignStyle: com.screenarc.app.model.ArcDesignStyle = com.screenarc.app.model.ArcDesignStyle.ORBIT,
     val autoOcrEnabled: Boolean = false,
     val autoAssignRulesEnabled: Boolean = false,
-    val themePreset: AppThemePreset = AppThemePreset.DYNAMIC_SYSTEM
+    val themePreset: AppThemePreset = AppThemePreset.DYNAMIC_SYSTEM,
+    val uiDesignStyle: UiDesignStyle = UiDesignStyle.MATERIAL
 )
 
 class AppSettingsRepository(context: Context) {
@@ -58,6 +64,13 @@ class AppSettingsRepository(context: Context) {
         val themePresetId = prefs.getString("theme_preset", AppThemePreset.DYNAMIC_SYSTEM.id)
         val themePreset = AppThemePreset.fromId(themePresetId, AppThemePreset.DYNAMIC_SYSTEM)
 
+        val uiStyleName = prefs.getString("ui_design_style", UiDesignStyle.MATERIAL.name)
+        val uiStyle = try {
+            UiDesignStyle.valueOf(uiStyleName ?: UiDesignStyle.MATERIAL.name)
+        } catch (e: Exception) {
+            UiDesignStyle.MATERIAL
+        }
+
         val autoOcr = prefs.getBoolean("auto_ocr_enabled", false)
         val autoRules = prefs.getBoolean("auto_assign_rules_enabled", false)
 
@@ -75,7 +88,8 @@ class AppSettingsRepository(context: Context) {
             arcDesignStyle = arcStyle,
             autoOcrEnabled = autoOcr,
             autoAssignRulesEnabled = if (autoOcr) autoRules else false,
-            themePreset = themePreset
+            themePreset = themePreset,
+            uiDesignStyle = uiStyle
         )
     }
 
@@ -103,6 +117,7 @@ class AppSettingsRepository(context: Context) {
             putBoolean("auto_ocr_enabled", finalUpdated.autoOcrEnabled)
             putBoolean("auto_assign_rules_enabled", finalUpdated.autoAssignRulesEnabled)
             putString("theme_preset", finalUpdated.themePreset.id)
+            putString("ui_design_style", finalUpdated.uiDesignStyle.name)
         }.apply()
         _settings.value = finalUpdated
     }

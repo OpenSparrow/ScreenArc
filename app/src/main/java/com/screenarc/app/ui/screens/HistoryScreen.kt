@@ -54,6 +54,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -339,6 +340,30 @@ fun HistoryScreen(
                                 }
                             }
 
+                            // Rule matched keywords explanation
+                            if (record.matchedKeywords.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = "Moved to ${record.categoryName} due to ${record.matchedKeywords.joinToString(", ") { "\"$it\"" }} words in the text",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium
+                                    ),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            } else if (record.ruleName != null) {
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = "Moved to ${record.categoryName} by rule '${record.ruleName}'",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
                             Spacer(modifier = Modifier.height(4.dp))
 
                             Text(
@@ -412,6 +437,14 @@ fun HistoryScreen(
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onTertiaryContainer
                                     )
+                                    if (record.matchedKeywords.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "Moved to ${record.categoryName} due to ${record.matchedKeywords.joinToString(", ") { "\"$it\"" }} words in the text",
+                                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                                        )
+                                    }
                                 }
                             }
                         }

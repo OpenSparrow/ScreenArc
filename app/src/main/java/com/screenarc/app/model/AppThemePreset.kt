@@ -3,6 +3,13 @@ package com.screenarc.app.model
 /**
  * Visual Theme Presets inspired by Material 3 Expressive and DropSauce styling.
  */
+enum class ThemeCategory {
+    ALL,
+    LIGHT,
+    DARK,
+    GLASS
+}
+
 enum class AppThemePreset(
     val id: String,
     val displayName: String,
@@ -10,7 +17,9 @@ enum class AppThemePreset(
     val primaryColorHex: Long,
     val secondaryColorHex: Long,
     val surfaceColorHex: Long,
-    val isDarkOnly: Boolean = false
+    val isDarkOnly: Boolean = false,
+    val isLightOnly: Boolean = false,
+    val isGlass: Boolean = false
 ) {
     DYNAMIC_SYSTEM(
         id = "dynamic_system",
@@ -19,6 +28,53 @@ enum class AppThemePreset(
         primaryColorHex = 0xFF6750A4,
         secondaryColorHex = 0xFF625B71,
         surfaceColorHex = 0xFF141218
+    ),
+    MATERIAL_LIGHT(
+        id = "material_light",
+        displayName = "Material Clean Light",
+        subtitle = "Crisp, bright daylight surfaces with vibrant indigo accents",
+        primaryColorHex = 0xFF0061A4,
+        secondaryColorHex = 0xFF535F70,
+        surfaceColorHex = 0xFFFDFBFF,
+        isLightOnly = true
+    ),
+    PASTEL_CREAM(
+        id = "pastel_cream",
+        displayName = "Pastel Cream Light",
+        subtitle = "Warm soothing ivory & amber palette for daylight comfort",
+        primaryColorHex = 0xFF8C5000,
+        secondaryColorHex = 0xFF715B2E,
+        surfaceColorHex = 0xFFFFF8F4,
+        isLightOnly = true
+    ),
+    NORD_SNOW(
+        id = "nord_snow",
+        displayName = "Nordic Snow Light",
+        subtitle = "Pristine arctic snow with ice-blue & frosted mint",
+        primaryColorHex = 0xFF5E81AC,
+        secondaryColorHex = 0xFF88C0D0,
+        surfaceColorHex = 0xFFECEFF4,
+        isLightOnly = true
+    ),
+    GLASS_FROST(
+        id = "glass_frost",
+        displayName = "Frosted Glass Light",
+        subtitle = "Glassmorphism with translucent ice cyan & frosted acrylic",
+        primaryColorHex = 0xFF00677D,
+        secondaryColorHex = 0xFF4B626A,
+        surfaceColorHex = 0xFFF0F7F9,
+        isLightOnly = true,
+        isGlass = true
+    ),
+    GLASS_AURORA(
+        id = "glass_aurora",
+        displayName = "Glassmorphism Aurora",
+        subtitle = "Acrylic dark glass with electric violet & emerald aura",
+        primaryColorHex = 0xFFD0BCFF,
+        secondaryColorHex = 0xFF7D5260,
+        surfaceColorHex = 0xFF181524,
+        isDarkOnly = true,
+        isGlass = true
     ),
     MIDNIGHT_AMOLED(
         id = "midnight_amoled",

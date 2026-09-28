@@ -29,6 +29,14 @@ class OrganizedHistoryRepository(context: Context) {
                 val obj = array.getJSONObject(i)
                 val ruleNameRaw = obj.optString("ruleName", "")
                 val triggerTypeRaw = obj.optString("triggerType", OrganizedRecord.TRIGGER_MANUAL)
+                val matchReasonRaw = obj.optString("matchReason", "")
+                val keywordsList = mutableListOf<String>()
+                if (obj.has("matchedKeywords")) {
+                    val kwArray = obj.getJSONArray("matchedKeywords")
+                    for (k in 0 until kwArray.length()) {
+                        keywordsList.add(kwArray.getString(k))
+                    }
+                }
                 list.add(
                     OrganizedRecord(
                         id = obj.getString("id"),
@@ -40,7 +48,9 @@ class OrganizedHistoryRepository(context: Context) {
                         timestamp = obj.getLong("timestamp"),
                         success = obj.optBoolean("success", true),
                         ruleName = if (ruleNameRaw.isNotBlank()) ruleNameRaw else null,
-                        triggerType = if (triggerTypeRaw.isNotBlank()) triggerTypeRaw else OrganizedRecord.TRIGGER_MANUAL
+                        triggerType = if (triggerTypeRaw.isNotBlank()) triggerTypeRaw else OrganizedRecord.TRIGGER_MANUAL,
+                        matchedKeywords = keywordsList,
+                        matchReason = if (matchReasonRaw.isNotBlank()) matchReasonRaw else null
                     )
                 )
             }
@@ -64,6 +74,10 @@ class OrganizedHistoryRepository(context: Context) {
                 put("success", item.success)
                 put("ruleName", item.ruleName ?: "")
                 put("triggerType", item.triggerType)
+                val kwArray = JSONArray()
+                item.matchedKeywords.forEach { kwArray.put(it) }
+                put("matchedKeywords", kwArray)
+                put("matchReason", item.matchReason ?: "")
             }
             array.put(obj)
         }

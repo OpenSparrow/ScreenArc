@@ -236,6 +236,53 @@ class SearchViewModel @JvmOverloads constructor(
         rulesRepository.reorderRules(reorderedRules)
     }
 
+    fun importConfigurationBackup(jsonString: String, settingsRepo: com.screenarc.app.data.AppSettingsRepository? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = com.screenarc.app.data.ConfigurationBackupManager.parseBackupJson(jsonString)
+            if (!result.success) {
+                _uiState.value = _uiState.value.copy(errorMessage = result.message)
+                return@launch
+            }
+
+            if (result.categories.isNotEmpty()) {
+                categoryRepository.importCategories(result.categories)
+            }
+
+            if (result.rules.isNotEmpty()) {
+                rulesRepository.importRules(result.rules, replace = false)
+            }
+
+            if (settingsRepo != null && result.settingsMap.isNotEmpty()) {
+                settingsRepo.updateSettings { current ->
+                    var updated = current
+                    val themeId = result.settingsMap["themePreset"] as? String
+                    if (themeId != null) {
+                        updated = updated.copy(themePreset = com.screenarc.app.model.AppThemePreset.fromId(themeId))
+                    }
+                    val styleId = result.settingsMap["uiDesignStyle"] as? String
+                    if (styleId != null) {
+                        try {
+                            updated = updated.copy(uiDesignStyle = com.screenarc.app.data.UiDesignStyle.valueOf(styleId))
+                        } catch (e: Exception) {}
+                    }
+                    val bubbleSize = (result.settingsMap["bubbleSizeDp"] as? Number)?.toInt()
+                    if (bubbleSize != null) {
+                        updated = updated.copy(bubbleSizeDp = bubbleSize)
+                    }
+                    val arcRadius = (result.settingsMap["arcRadiusDp"] as? Number)?.toInt()
+                    if (arcRadius != null) {
+                        updated = updated.copy(arcRadiusDp = arcRadius)
+                    }
+                    updated
+                }
+            }
+
+            _uiState.value = _uiState.value.copy(
+                infoMessage = "Imported ${result.rules.size} rules and ${result.categories.size} categories successfully!"
+            )
+        }
+    }
+
     fun runRule(ruleId: String) {
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.value = _uiState.value.copy(isRuleRunning = true)

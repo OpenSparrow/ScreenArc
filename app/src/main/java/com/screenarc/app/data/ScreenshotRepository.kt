@@ -123,7 +123,9 @@ class ScreenshotRepository(
         screenshot: ScreenshotUiModel,
         category: CategoryUiModel,
         ruleName: String? = null,
-        triggerType: String = OrganizedRecord.TRIGGER_MANUAL
+        triggerType: String = OrganizedRecord.TRIGGER_MANUAL,
+        matchedKeywords: List<String> = emptyList(),
+        matchReason: String? = null
     ): Result<Uri> = withContext(Dispatchers.IO) {
         val legacyCategory = com.screenarc.app.model.Category(
             id = category.id.toString(),
@@ -173,7 +175,9 @@ class ScreenshotRepository(
                     timestamp = System.currentTimeMillis(),
                     success = true,
                     ruleName = ruleName,
-                    triggerType = triggerType
+                    triggerType = triggerType,
+                    matchedKeywords = matchedKeywords,
+                    matchReason = matchReason
                 )
             )
 

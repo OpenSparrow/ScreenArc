@@ -12,7 +12,9 @@ data class OrganizedRecord(
     val timestamp: Long,
     val success: Boolean = true,
     val ruleName: String? = null,
-    val triggerType: String = TRIGGER_MANUAL
+    val triggerType: String = TRIGGER_MANUAL,
+    val matchedKeywords: List<String> = emptyList(),
+    val matchReason: String? = null
 ) {
     companion object {
         const val TRIGGER_MANUAL = "MANUAL"

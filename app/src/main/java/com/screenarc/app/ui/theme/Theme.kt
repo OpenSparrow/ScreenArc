@@ -9,6 +9,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import com.screenarc.app.model.AppThemePreset
 
@@ -259,6 +260,102 @@ private val CyberpunkNeonColorScheme = darkColorScheme(
     surfaceContainerHigh = cyberpunk_surfaceContainerHigh
 )
 
+// 7. Material Clean Light
+private val MaterialCleanLightColorScheme = lightColorScheme(
+    primary = Color(0xFF0061A4),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFD1E4FF),
+    onPrimaryContainer = Color(0xFF001D36),
+    secondary = Color(0xFF535F70),
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFD7E3F7),
+    onSecondaryContainer = Color(0xFF101C2B),
+    tertiary = Color(0xFF6B5778),
+    onTertiary = Color(0xFFFFFFFF),
+    tertiaryContainer = Color(0xFFF2DAFF),
+    onTertiaryContainer = Color(0xFF251431),
+    background = Color(0xFFFDFBFF),
+    onBackground = Color(0xFF1A1C1E),
+    surface = Color(0xFFFDFBFF),
+    onSurface = Color(0xFF1A1C1E),
+    surfaceVariant = Color(0xFFDFE2EB),
+    onSurfaceVariant = Color(0xFF43474E),
+    outline = Color(0xFF73777F),
+    surfaceContainerHigh = Color(0xFFE8ECF4)
+)
+
+// 8. Pastel Cream Light
+private val PastelCreamColorScheme = lightColorScheme(
+    primary = Color(0xFF8C5000),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFFFDCC1),
+    onPrimaryContainer = Color(0xFF2E1500),
+    secondary = Color(0xFF715B2E),
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFFDE0A6),
+    onSecondaryContainer = Color(0xFF261900),
+    tertiary = Color(0xFF52643F),
+    onTertiary = Color(0xFFFFFFFF),
+    tertiaryContainer = Color(0xFFD5EABA),
+    onTertiaryContainer = Color(0xFF101F03),
+    background = Color(0xFFFFF8F4),
+    onBackground = Color(0xFF211A14),
+    surface = Color(0xFFFFF8F4),
+    onSurface = Color(0xFF211A14),
+    surfaceVariant = Color(0xFFF3DFD1),
+    onSurfaceVariant = Color(0xFF51443B),
+    outline = Color(0xFF84746A),
+    surfaceContainerHigh = Color(0xFFF7ECE4)
+)
+
+// 9. Glassmorphism Frost Light
+private val GlassFrostLightColorScheme = lightColorScheme(
+    primary = Color(0xFF00677D),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFB3EBFF),
+    onPrimaryContainer = Color(0xFF001F27),
+    secondary = Color(0xFF4B626A),
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFCEE7F0),
+    onSecondaryContainer = Color(0xFF061E25),
+    tertiary = Color(0xFF585C7E),
+    onTertiary = Color(0xFFFFFFFF),
+    tertiaryContainer = Color(0xFFDFE0FF),
+    onTertiaryContainer = Color(0xFF151937),
+    background = Color(0xFFF0F7F9),
+    onBackground = Color(0xFF191C1D),
+    surface = Color(0xFFF7FBFD),
+    onSurface = Color(0xFF191C1D),
+    surfaceVariant = Color(0xFFDBE4E7),
+    onSurfaceVariant = Color(0xFF3F484B),
+    outline = Color(0xFF6F797B),
+    surfaceContainerHigh = Color(0xFFE2EDF0)
+)
+
+// 10. Glassmorphism Aurora Dark
+private val GlassAuroraDarkColorScheme = darkColorScheme(
+    primary = Color(0xFFD0BCFF),
+    onPrimary = Color(0xFF381E72),
+    primaryContainer = Color(0xFF4F378B),
+    onPrimaryContainer = Color(0xFFEADDFF),
+    secondary = Color(0xFFCCC2DC),
+    onSecondary = Color(0xFF332D41),
+    secondaryContainer = Color(0xFF4A4458),
+    onSecondaryContainer = Color(0xFFE8DEF8),
+    tertiary = Color(0xFFEFB8C8),
+    onTertiary = Color(0xFF492532),
+    tertiaryContainer = Color(0xFF633B48),
+    onTertiaryContainer = Color(0xFFFFD8E4),
+    background = Color(0xFF120E1E),
+    onBackground = Color(0xFFE6E1E5),
+    surface = Color(0xFF181326),
+    onSurface = Color(0xFFE6E1E5),
+    surfaceVariant = Color(0xFF49454F),
+    onSurfaceVariant = Color(0xFFCAC4D0),
+    outline = Color(0xFF938F99),
+    surfaceContainerHigh = Color(0xFF241C38)
+)
+
 @Composable
 fun ScreenArcTheme(
     themePreset: AppThemePreset = AppThemePreset.DYNAMIC_SYSTEM,
@@ -275,6 +372,11 @@ fun ScreenArcTheme(
                 if (darkTheme) DarkColorScheme else LightColorScheme
             }
         }
+        AppThemePreset.MATERIAL_LIGHT -> MaterialCleanLightColorScheme
+        AppThemePreset.PASTEL_CREAM -> PastelCreamColorScheme
+        AppThemePreset.NORD_SNOW -> NordFrostLightColorScheme
+        AppThemePreset.GLASS_FROST -> GlassFrostLightColorScheme
+        AppThemePreset.GLASS_AURORA -> GlassAuroraDarkColorScheme
         AppThemePreset.MIDNIGHT_AMOLED -> MidnightAmoledColorScheme
         AppThemePreset.CATPPUCCIN_MOCHA -> if (darkTheme) CatppuccinMochaColorScheme else CatppuccinLatteColorScheme
         AppThemePreset.DRACULA -> DraculaColorScheme

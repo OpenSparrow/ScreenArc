@@ -1,11 +1,28 @@
 package com.screenarc.app.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.ui.draw.rotate
+import com.screenarc.app.data.ConfigurationBackupManager
+import com.screenarc.app.data.UiDesignStyle
+import com.screenarc.app.model.ThemeCategory
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -135,6 +152,8 @@ fun SettingsScreen(
     var forceReindex by remember { mutableStateOf(false) }
     var ruleToEdit by remember { mutableStateOf<AutoCategorizationRule?>(null) }
     var showCreateRuleDialog by remember { mutableStateOf(false) }
+    var showPasteJsonDialog by remember { mutableStateOf(false) }
+    var pastedJsonText by remember { mutableStateOf("") }
 
     LazyColumn(
         modifier = modifier
@@ -165,7 +184,7 @@ fun SettingsScreen(
                     label = "RulesArrow"
                 )
                 ElevatedCard(
-                    modifier = Modifier.fillMaxWidth().animateContentSize(animationSpec = tween(300)),
+                    modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(24.dp),
                     colors = CardDefaults.elevatedCardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
@@ -207,7 +226,11 @@ fun SettingsScreen(
                             }
                         }
 
-                        AnimatedVisibility(visible = rulesExpanded) {
+                        AnimatedVisibility(
+                            visible = rulesExpanded,
+                            enter = expandVertically(animationSpec = tween(220)) + fadeIn(animationSpec = tween(180)),
+                            exit = shrinkVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(140))
+                        ) {
                             Column {
                                 Spacer(modifier = Modifier.height(6.dp))
 
@@ -291,7 +314,159 @@ fun SettingsScreen(
             }
         }
 
-        // 2. On-Device OCR Settings Card (Multilingual & Script Support)
+        // 2. Backup & Restore Configurations Card (Rules & Categories)
+        item {
+            val context = LocalContext.current
+            var backupExpanded by remember { mutableStateOf(false) }
+            val backupArrowRotation by animateFloatAsState(
+                targetValue = if (backupExpanded) 180f else 0f,
+                animationSpec = tween(300),
+                label = "BackupArrow"
+            )
+
+            val importFileLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.GetContent()
+            ) { uri ->
+                if (uri != null) {
+                    val content = ConfigurationBackupManager.readTextFromUri(context, uri)
+                    if (content != null) {
+                        searchViewModel?.importConfigurationBackup(content, settingsRepo)
+                    }
+                }
+            }
+
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                )
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { backupExpanded = !backupExpanded },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(
+                                Icons.Default.Backup,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Backup & Restore Configurations",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = if (backupExpanded) "Collapse" else "Expand",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp).rotate(backupArrowRotation)
+                        )
+                    }
+
+                    AnimatedVisibility(
+                        visible = backupExpanded,
+                        enter = expandVertically(animationSpec = tween(220)) + fadeIn(animationSpec = tween(180)),
+                        exit = shrinkVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(140))
+                    ) {
+                        Column {
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Text(
+                                text = "Export your custom rules, keywords, and category folder structure to a portable backup file, or restore them across devices.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        val json = ConfigurationBackupManager.createBackupJson(
+                                            rules = rules,
+                                            categories = categories,
+                                            settings = settings
+                                        )
+                                        ConfigurationBackupManager.shareBackup(context, json)
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                ) {
+                                    Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Export", fontSize = 12.sp)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        importFileLauncher.launch("*/*")
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                ) {
+                                    Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Import File", fontSize = 12.sp)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                FilledTonalButton(
+                                    onClick = {
+                                        val json = ConfigurationBackupManager.createBackupJson(
+                                            rules = rules,
+                                            categories = categories,
+                                            settings = settings
+                                        )
+                                        ConfigurationBackupManager.copyToClipboard(context, json)
+                                        android.widget.Toast.makeText(context, "Backup copied to clipboard!", android.widget.Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Copy JSON", fontSize = 11.sp)
+                                }
+
+                                FilledTonalButton(
+                                    onClick = { showPasteJsonDialog = true },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Paste JSON", fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. On-Device OCR Settings Card (Multilingual & Script Support)
         item {
             var ocrExpanded by remember { mutableStateOf(true) }
             val ocrArrowRotation by animateFloatAsState(
@@ -300,7 +475,7 @@ fun SettingsScreen(
                 label = "OcrArrow"
             )
             ElevatedCard(
-                modifier = Modifier.fillMaxWidth().animateContentSize(animationSpec = tween(300)),
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.elevatedCardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
@@ -329,7 +504,11 @@ fun SettingsScreen(
                         )
                     }
 
-                    AnimatedVisibility(visible = ocrExpanded) {
+                    AnimatedVisibility(
+                        visible = ocrExpanded,
+                        enter = expandVertically(animationSpec = tween(220)) + fadeIn(animationSpec = tween(180)),
+                        exit = shrinkVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(140))
+                    ) {
                         Column {
                             Spacer(modifier = Modifier.height(6.dp))
 
@@ -569,7 +748,7 @@ fun SettingsScreen(
                     label = "BulkOcrArrow"
                 )
                 ElevatedCard(
-                    modifier = Modifier.fillMaxWidth().animateContentSize(animationSpec = tween(300)),
+                    modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(24.dp),
                     colors = CardDefaults.elevatedCardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
@@ -598,7 +777,11 @@ fun SettingsScreen(
                             )
                         }
 
-                        AnimatedVisibility(visible = bulkOcrExpanded) {
+                        AnimatedVisibility(
+                            visible = bulkOcrExpanded,
+                            enter = expandVertically(animationSpec = tween(220)) + fadeIn(animationSpec = tween(180)),
+                            exit = shrinkVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(140))
+                        ) {
                             Column {
                                 Spacer(modifier = Modifier.height(6.dp))
 
@@ -782,7 +965,7 @@ fun SettingsScreen(
                 label = "OverlayArrow"
             )
             ElevatedCard(
-                modifier = Modifier.fillMaxWidth().animateContentSize(animationSpec = tween(300)),
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.elevatedCardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
@@ -811,7 +994,11 @@ fun SettingsScreen(
                         )
                     }
 
-                    AnimatedVisibility(visible = overlayExpanded) {
+                    AnimatedVisibility(
+                        visible = overlayExpanded,
+                        enter = expandVertically(animationSpec = tween(220)) + fadeIn(animationSpec = tween(180)),
+                        exit = shrinkVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(140))
+                    ) {
                         Column {
                             Spacer(modifier = Modifier.height(16.dp))
 
@@ -958,13 +1145,14 @@ fun SettingsScreen(
         // 5. Visual Themes & Expressive Palettes Card (DropSauce Inspired)
         item {
             var themesExpanded by remember { mutableStateOf(false) }
+            var selectedThemeCategory by remember { mutableStateOf(ThemeCategory.ALL) }
             val themesArrowRotation by animateFloatAsState(
                 targetValue = if (themesExpanded) 180f else 0f,
                 animationSpec = tween(300),
                 label = "ThemesArrow"
             )
             ElevatedCard(
-                modifier = Modifier.fillMaxWidth().animateContentSize(animationSpec = tween(300)),
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.elevatedCardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
@@ -993,34 +1181,158 @@ fun SettingsScreen(
                         )
                     }
 
-                    AnimatedVisibility(visible = themesExpanded) {
+                    AnimatedVisibility(
+                        visible = themesExpanded,
+                        enter = expandVertically(tween(220)) + fadeIn(tween(180)),
+                        exit = shrinkVertically(tween(180)) + fadeOut(tween(140))
+                    ) {
                         Column {
                             Spacer(modifier = Modifier.height(6.dp))
 
                             Text(
-                                text = "Choose from Material 3 Expressive theme color schemes inspired by DropSauce, including Midnight AMOLED, Catppuccin, and Dracula.",
+                                text = "Choose from Material 3 Expressive theme color schemes, Glassmorphism styles, and light/dark palettes.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
 
                             Spacer(modifier = Modifier.height(14.dp))
 
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                AppThemePreset.values().forEach { preset ->
+                            // UI Design Style Toggle: Material UI vs Glassmorphism
+                            Text(
+                                text = "Design Style",
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (settings.uiDesignStyle == UiDesignStyle.MATERIAL) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                    border = if (settings.uiDesignStyle == UiDesignStyle.MATERIAL) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable {
+                                            settingsRepo.updateSettings { it.copy(uiDesignStyle = UiDesignStyle.MATERIAL) }
+                                        }
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(12.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = "Material 3",
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = if (settings.uiDesignStyle == UiDesignStyle.MATERIAL) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = "Expressive & Clean",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (settings.uiDesignStyle == UiDesignStyle.GLASSMORPHISM) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                    border = if (settings.uiDesignStyle == UiDesignStyle.GLASSMORPHISM) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable {
+                                            settingsRepo.updateSettings { it.copy(uiDesignStyle = UiDesignStyle.GLASSMORPHISM) }
+                                        }
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(12.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = "Glassmorphism",
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = if (settings.uiDesignStyle == UiDesignStyle.GLASSMORPHISM) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = "Frosted Translucent",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            // Theme Category Filter Row
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                listOf(
+                                    ThemeCategory.ALL to "All",
+                                    ThemeCategory.LIGHT to "Light",
+                                    ThemeCategory.DARK to "Dark",
+                                    ThemeCategory.GLASS to "Glass"
+                                ).forEach { (cat, label) ->
+                                    val isCatSelected = selectedThemeCategory == cat
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (isCatSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable { selectedThemeCategory = cat }
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Normal
+                                            ),
+                                            color = if (isCatSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(vertical = 6.dp),
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            val filteredPresets = remember(selectedThemeCategory) {
+                                AppThemePreset.values().filter { preset ->
+                                    when (selectedThemeCategory) {
+                                        ThemeCategory.ALL -> true
+                                        ThemeCategory.LIGHT -> preset.isLightOnly
+                                        ThemeCategory.DARK -> preset.isDarkOnly || (!preset.isLightOnly && !preset.isGlass)
+                                        ThemeCategory.GLASS -> preset.isGlass
+                                    }
+                                }
+                            }
+
+                            // Vertically scrollable preset list with max height
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 240.dp)
+                                    .verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                filteredPresets.forEach { preset ->
                                     val isSelected = settings.themePreset == preset
                                     Surface(
-                                        shape = RoundedCornerShape(16.dp),
+                                        shape = RoundedCornerShape(14.dp),
                                         color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                                         border = if (isSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clip(RoundedCornerShape(16.dp))
+                                            .clip(RoundedCornerShape(14.dp))
                                             .clickable {
                                                 settingsRepo.updateSettings { it.copy(themePreset = preset) }
                                             }
                                     ) {
                                         Row(
-                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
@@ -1034,7 +1346,7 @@ fun SettingsScreen(
                                                         settingsRepo.updateSettings { it.copy(themePreset = preset) }
                                                     }
                                                 )
-                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Spacer(modifier = Modifier.width(8.dp))
                                                 Column {
                                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                                         Text(
@@ -1044,22 +1356,47 @@ fun SettingsScreen(
                                                             ),
                                                             color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
                                                         )
-                                                        if (preset.isDarkOnly) {
+                                                        if (preset.isGlass) {
+                                                            Spacer(modifier = Modifier.width(6.dp))
+                                                            Surface(
+                                                                shape = RoundedCornerShape(6.dp),
+                                                                color = MaterialTheme.colorScheme.secondaryContainer
+                                                            ) {
+                                                                Text(
+                                                                    text = "Glass",
+                                                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                                                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                                )
+                                                            }
+                                                        } else if (preset.isLightOnly) {
                                                             Spacer(modifier = Modifier.width(6.dp))
                                                             Surface(
                                                                 shape = RoundedCornerShape(6.dp),
                                                                 color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.7f)
                                                             ) {
                                                                 Text(
-                                                                    text = "Dark/AMOLED",
+                                                                    text = "Light",
                                                                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
                                                                     color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                                )
+                                                            }
+                                                        } else if (preset.isDarkOnly) {
+                                                            Spacer(modifier = Modifier.width(6.dp))
+                                                            Surface(
+                                                                shape = RoundedCornerShape(6.dp),
+                                                                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.7f)
+                                                            ) {
+                                                                Text(
+                                                                    text = "Dark",
+                                                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                                                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                                                 )
                                                             }
                                                         }
                                                     }
-                                                    Spacer(modifier = Modifier.height(2.dp))
                                                     Text(
                                                         text = preset.subtitle,
                                                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
@@ -1114,7 +1451,7 @@ fun SettingsScreen(
                 label = "MotionArrow"
             )
             ElevatedCard(
-                modifier = Modifier.fillMaxWidth().animateContentSize(animationSpec = tween(300)),
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.elevatedCardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
@@ -1143,7 +1480,11 @@ fun SettingsScreen(
                         )
                     }
 
-                    AnimatedVisibility(visible = motionExpanded) {
+                    AnimatedVisibility(
+                        visible = motionExpanded,
+                        enter = expandVertically(tween(220)) + fadeIn(tween(180)),
+                        exit = shrinkVertically(tween(180)) + fadeOut(tween(140))
+                    ) {
                         Column {
                             Spacer(modifier = Modifier.height(16.dp))
 
@@ -1258,7 +1599,7 @@ fun SettingsScreen(
             )
 
             ElevatedCard(
-                modifier = Modifier.fillMaxWidth().animateContentSize(animationSpec = tween(300)),
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.elevatedCardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
@@ -1287,7 +1628,11 @@ fun SettingsScreen(
                         )
                     }
 
-                    AnimatedVisibility(visible = reliabilityExpanded) {
+                    AnimatedVisibility(
+                        visible = reliabilityExpanded,
+                        enter = expandVertically(tween(220)) + fadeIn(tween(180)),
+                        exit = shrinkVertically(tween(180)) + fadeOut(tween(140))
+                    ) {
                         Column {
                             Spacer(modifier = Modifier.height(8.dp))
 
@@ -1455,6 +1800,59 @@ fun SettingsScreen(
             }
         )
     }
+
+    // Paste Backup JSON Dialog
+    if (showPasteJsonDialog) {
+        AlertDialog(
+            onDismissRequest = { showPasteJsonDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.ContentPaste, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Import Backup JSON")
+                }
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Paste your exported configuration JSON below to restore categories, rules, and preferences:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = pastedJsonText,
+                        onValueChange = { pastedJsonText = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp),
+                        label = { Text("Backup JSON") },
+                        placeholder = { Text("{\n  \"version\": 1,\n  \"rules\": [...]\n}") },
+                        textStyle = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (pastedJsonText.isNotBlank()) {
+                            searchViewModel?.importConfigurationBackup(pastedJsonText, settingsRepo)
+                            showPasteJsonDialog = false
+                            pastedJsonText = ""
+                        }
+                    },
+                    enabled = pastedJsonText.isNotBlank()
+                ) {
+                    Text("Restore")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPasteJsonDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -1486,7 +1884,7 @@ fun RuleItemCard(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
         border = if (rule.isEnabled) BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)) else null,
-        modifier = Modifier.fillMaxWidth().animateContentSize(animationSpec = tween(300))
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             // Row 1: Priority Badge + Rule Name + Switch + Expand Arrow
@@ -1546,7 +1944,11 @@ fun RuleItemCard(
                 }
             }
 
-            AnimatedVisibility(visible = isRuleExpanded) {
+            AnimatedVisibility(
+                visible = isRuleExpanded,
+                enter = expandVertically(tween(200)) + fadeIn(tween(160)),
+                exit = shrinkVertically(tween(160)) + fadeOut(tween(120))
+            ) {
                 Column {
                     Spacer(modifier = Modifier.height(8.dp))
 

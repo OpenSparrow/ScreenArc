@@ -185,6 +185,19 @@ class RulesRepository(private val context: Context) {
         saveRules(reorderedRules)
     }
 
+    fun importRules(importedRules: List<AutoCategorizationRule>, replace: Boolean = false) {
+        val current = if (replace) mutableListOf() else _rules.value.toMutableList()
+        for (rule in importedRules) {
+            val index = current.indexOfFirst { it.name.equals(rule.name, ignoreCase = true) || it.id == rule.id }
+            if (index >= 0) {
+                current[index] = rule
+            } else {
+                current.add(rule.copy(priority = current.size))
+            }
+        }
+        saveRules(current)
+    }
+
     /**
      * Executes a single rule on demand.
      */
@@ -231,11 +244,14 @@ class RulesRepository(private val context: Context) {
             val evaluation = rule.evaluate(currentItem)
             if (evaluation.isAssigned) {
                 matchedCount++
+                val matched = evaluation.matchedPrimaryKeywords + evaluation.matchedSecondaryKeywords
                 val result = screenshotRepository.moveToCategory(
                     screenshot = currentItem,
                     category = targetCategory,
                     ruleName = rule.name,
-                    triggerType = OrganizedRecord.TRIGGER_RULE
+                    triggerType = OrganizedRecord.TRIGGER_RULE,
+                    matchedKeywords = matched,
+                    matchReason = evaluation.reason
                 )
                 if (result.isSuccess) {
                     movedCount++
@@ -301,11 +317,14 @@ class RulesRepository(private val context: Context) {
 
                 if (targetCategory != null) {
                     totalMatched++
+                    val matched = winningMatch.matchedPrimaryKeywords + winningMatch.matchedSecondaryKeywords
                     val res = screenshotRepository.moveToCategory(
                         screenshot = currentItem,
                         category = targetCategory,
                         ruleName = winningRule.name,
-                        triggerType = OrganizedRecord.TRIGGER_RULE
+                        triggerType = OrganizedRecord.TRIGGER_RULE,
+                        matchedKeywords = matched,
+                        matchReason = winningMatch.reason
                     )
                     if (res.isSuccess) {
                         totalMoved++
