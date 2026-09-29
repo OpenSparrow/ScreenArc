@@ -59,6 +59,13 @@ class CategoryRepository(private val context: Context) {
         OverlayEventBus.postEvent(OverlayEvent.CategoriesChanged(currentCategories))
     }
 
+    /**
+     * Sanitizes folder names to prevent path traversal and invalid characters.
+     */
+    private fun sanitizeFolderName(name: String): String {
+        return name.replace(Regex("[\\\\/:*?\"<>|]"), "").replace("..", "").trim()
+    }
+
     suspend fun addCategory(
         name: String,
         subfolder: String,
@@ -66,12 +73,15 @@ class CategoryRepository(private val context: Context) {
         colorHex: Long
     ): Long = withContext(Dispatchers.IO) {
         val cleanName = name.trim()
-        val cleanSubfolder = if (subfolder.isBlank()) cleanName else subfolder.trim()
+        val rawSubfolder = if (subfolder.isBlank()) cleanName else subfolder.trim()
+        val cleanSubfolder = sanitizeFolderName(rawSubfolder)
+        val finalSubfolder = if (cleanSubfolder.isBlank()) "Categorized" else cleanSubfolder
+
         val currentCount = categoryDao.getCategoryCount()
 
         val newEntity = CategoryEntity(
             name = cleanName,
-            subfolderName = cleanSubfolder,
+            subfolderName = finalSubfolder,
             iconName = iconName,
             colorHex = colorHex,
             isDefault = false,
@@ -81,24 +91,27 @@ class CategoryRepository(private val context: Context) {
         val id = categoryDao.insertCategory(newEntity)
 
         // Ensure target folder exists on disk if possible
-        createCategoryDirectory(cleanSubfolder)
+        createCategoryDirectory(finalSubfolder)
 
         refreshOverlayCategories()
         id
     }
 
     suspend fun updateCategory(category: CategoryUiModel) = withContext(Dispatchers.IO) {
+        val cleanSubfolder = sanitizeFolderName(category.subfolderName)
+        val finalSubfolder = if (cleanSubfolder.isBlank()) "Categorized" else cleanSubfolder
+
         val entity = CategoryEntity(
             id = category.id,
             name = category.name.trim(),
-            subfolderName = category.subfolderName.trim(),
+            subfolderName = finalSubfolder,
             iconName = category.iconName,
             colorHex = category.colorHex,
             isDefault = category.isDefault,
             orderIndex = category.orderIndex
         )
         categoryDao.updateCategory(entity)
-        createCategoryDirectory(category.subfolderName)
+        createCategoryDirectory(finalSubfolder)
         refreshOverlayCategories()
     }
 
@@ -112,16 +125,19 @@ class CategoryRepository(private val context: Context) {
         for (imported in importedCategories) {
             val match = existing.find { it.name.equals(imported.name, ignoreCase = true) }
             if (match == null) {
+                val cleanSubfolder = sanitizeFolderName(imported.subfolderName)
+                val finalSubfolder = if (cleanSubfolder.isBlank()) sanitizeFolderName(imported.name).ifBlank { "Categorized" } else cleanSubfolder
+
                 val entity = CategoryEntity(
                     name = imported.name.trim(),
-                    subfolderName = imported.subfolderName.trim(),
+                    subfolderName = finalSubfolder,
                     iconName = imported.iconName,
                     colorHex = imported.colorHex,
                     isDefault = false,
                     orderIndex = existing.size
                 )
                 categoryDao.insertCategory(entity)
-                createCategoryDirectory(imported.subfolderName.trim())
+                createCategoryDirectory(finalSubfolder)
             }
         }
         refreshOverlayCategories()
@@ -138,6 +154,17 @@ class CategoryRepository(private val context: Context) {
             val picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
             val screenshotsDir = File(picturesDir, "Screenshots")
             val targetDir = File(screenshotsDir, subfolderName)
+
+            // Defense-in-depth: Verify canonical path does not escape Screenshots dir
+            val canonicalTarget = targetDir.canonicalPath
+            val canonicalScreenshots = screenshotsDir.canonicalPath
+            val canonicalScreenshotsWithSep = if (canonicalScreenshots.endsWith(File.separator)) canonicalScreenshots else canonicalScreenshots + File.separator
+
+            if (!canonicalTarget.startsWith(canonicalScreenshotsWithSep) && canonicalTarget != canonicalScreenshots) {
+                Log.e("CategoryRepository", "Security exception: Path traversal attempt blocked ($subfolderName)")
+                return
+            }
+
             if (!targetDir.exists()) {
                 targetDir.mkdirs()
             }
