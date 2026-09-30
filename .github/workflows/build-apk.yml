@@ -2,19 +2,23 @@ name: Build Android APK
 
 on:
   push:
+    tags:
+      - 'v*'
   pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
-    name: Test and build debug APK
+    name: Test, build, and release APK
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -46,3 +50,43 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Generate changelog
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: changelog
+        run: |
+          # Get the previous tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          if [ -z "$PREV_TAG" ]; then
+            # No previous tag, show all commits
+            CHANGELOG=$(git log --pretty=format:"- %h: %s" HEAD | head -20)
+          else
+            # Show commits since previous tag
+            CHANGELOG=$(git log $PREV_TAG..HEAD --pretty=format:"- %h: %s")
+          fi
+          
+          # Escape for use in GitHub Actions
+          CHANGELOG="${CHANGELOG//'%'/'%25'}"
+          CHANGELOG="${CHANGELOG//$'\n'/'%0A'}"
+          CHANGELOG="${CHANGELOG//$'\r'/'%0D'}"
+          echo "changelog=$CHANGELOG" >> $GITHUB_OUTPUT
+
+      - name: Create release with APK
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: app/build/outputs/apk/debug/app-debug.apk
+          body: |
+            ## Build Information
+            - **Version**: ${{ github.ref_name }}
+            - **Build**: Debug APK
+            - **Commit**: ${{ github.sha }}
+            
+            ## Recent Changes
+            ${{ steps.changelog.outputs.changelog }}
+            
+            ### Installation
+            Download the `app-debug.apk` file above and install it on your Android device (Android 8.0+).
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
