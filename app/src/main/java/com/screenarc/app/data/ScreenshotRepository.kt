@@ -147,14 +147,15 @@ class ScreenshotRepository(
         )
 
         val result = MediaStoreOrganizer.moveToCategory(context, legacyItem, legacyCategory)
-        result.onSuccess { newUri ->
-            // Update database record
+        if (result.isSuccess) {
+            val newUri = result.getOrThrow()
+            val movedDisplayName = MediaStoreOrganizer.getDisplayName(context, newUri)
             val relativeSubfolder = "Pictures/Screenshots/${category.subfolderName}/"
             screenshotDao.deleteScreenshotByUri(screenshot.uri)
             val updatedEntity = ScreenshotEntity(
                 id = screenshot.id,
                 uri = newUri.toString(),
-                displayName = screenshot.displayName,
+                displayName = movedDisplayName,
                 dateAdded = screenshot.dateAdded,
                 size = screenshot.size,
                 relativePath = relativeSubfolder,
@@ -169,7 +170,7 @@ class ScreenshotRepository(
                     id = "rec_${System.currentTimeMillis()}_${screenshot.id}",
                     screenshotId = screenshot.id,
                     uri = newUri,
-                    fileName = screenshot.displayName,
+                    fileName = movedDisplayName,
                     categoryName = category.name,
                     targetFolder = category.subfolderName,
                     timestamp = System.currentTimeMillis(),
@@ -206,12 +207,14 @@ class ScreenshotRepository(
             mimeType = screenshot.mimeType
         )
         val result = MediaStoreOrganizer.moveToCategory(context, legacyItem, rootCategory)
-        result.onSuccess { newUri ->
+        if (result.isSuccess) {
+            val newUri = result.getOrThrow()
+            val movedDisplayName = MediaStoreOrganizer.getDisplayName(context, newUri)
             screenshotDao.deleteScreenshotByUri(screenshot.uri)
             val updatedEntity = ScreenshotEntity(
                 id = screenshot.id,
                 uri = newUri.toString(),
-                displayName = screenshot.displayName,
+                displayName = movedDisplayName,
                 dateAdded = screenshot.dateAdded,
                 size = screenshot.size,
                 relativePath = "Pictures/Screenshots/",
@@ -261,10 +264,11 @@ class ScreenshotRepository(
 
         val newUri = MediaStoreOrganizer.copyToNewFolderPublic(context, legacyItem, relativeSubfolder)
         if (newUri != null) {
+            val copiedDisplayName = MediaStoreOrganizer.getDisplayName(context, newUri)
             val copyEntity = ScreenshotEntity(
                 id = System.currentTimeMillis(),
                 uri = newUri.toString(),
-                displayName = screenshot.displayName,
+                displayName = copiedDisplayName,
                 dateAdded = System.currentTimeMillis() / 1000,
                 size = screenshot.size,
                 relativePath = relativeSubfolder,
@@ -278,7 +282,7 @@ class ScreenshotRepository(
                     id = "rec_${System.currentTimeMillis()}_${screenshot.id}",
                     screenshotId = screenshot.id,
                     uri = newUri,
-                    fileName = "[Copy] ${screenshot.displayName}",
+                    fileName = "[Copy] $copiedDisplayName",
                     categoryName = category.name,
                     targetFolder = category.subfolderName,
                     timestamp = System.currentTimeMillis(),

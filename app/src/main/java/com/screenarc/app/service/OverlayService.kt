@@ -133,6 +133,9 @@ class OverlayService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
+            ACTION_START_SERVICE -> {
+                recoverAfterHostResume()
+            }
             ACTION_TRIGGER_DEMO -> {
                 val label = intent.getStringExtra(EXTRA_DEMO_LABEL) ?: "Test Screenshot"
                 val colorHex = intent.getIntExtra(EXTRA_DEMO_COLOR, 0xFF6750A4.toInt())
@@ -181,6 +184,18 @@ class OverlayService : Service() {
                 screenshotObserver!!
             )
             Log.d(TAG, "Registered MediaStore content observer successfully")
+            screenshotObserver?.scanRecentScreenshots()
+        }
+    }
+
+    private fun recoverAfterHostResume() {
+        screenshotObserver?.scanRecentScreenshots()
+        if (!Settings.canDrawOverlays(this)) return
+
+        currentOverlayScreenshot?.let { screenshot ->
+            if (overlayComposeView?.isAttachedToWindow != true) {
+                showFloatingOverlay(screenshot)
+            }
         }
     }
 
@@ -273,7 +288,10 @@ class OverlayService : Service() {
 
         // Prevent showing duplicate overlay if already active for this screenshot
         val current = currentOverlayScreenshot
-        if (overlayComposeView != null && current != null && (current.id == screenshot.id || current.uri == screenshot.uri)) {
+        if (overlayComposeView?.isAttachedToWindow == true &&
+            current != null &&
+            (current.id == screenshot.id || current.uri == screenshot.uri)
+        ) {
             Log.d(TAG, "Overlay is already active for screenshot ${screenshot.id}, ignoring duplicate show")
             return
         }

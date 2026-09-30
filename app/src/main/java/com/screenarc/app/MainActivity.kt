@@ -254,6 +254,16 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntent(intent)
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (::settingsRepository.isInitialized &&
+            settingsRepository.settings.value.isServiceEnabled &&
+            Settings.canDrawOverlays(this)
+        ) {
+            OverlayService.startService(this)
+        }
+    }
+
     private fun handleIncomingIntent(intent: Intent?) {
         val tabTarget = intent?.getStringExtra(EXTRA_NAVIGATE_TAB)
         if (tabTarget == TAB_SEARCH) {
