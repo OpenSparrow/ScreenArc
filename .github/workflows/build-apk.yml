@@ -34,7 +34,7 @@ jobs:
             exit 1
           fi
           echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
-          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses < <(yes)
           "$SDKMANAGER" --sdk_root="$ANDROID_HOME" \
             "platforms;android-35" \
             "build-tools;35.0.0"
