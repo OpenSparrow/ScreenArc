@@ -17,7 +17,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class ScreenshotObserver(
     private val context: Context,
@@ -27,6 +28,7 @@ class ScreenshotObserver(
 
     private val processedIds = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
     private val processedUris = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    private val scanMutex = Mutex()
     private var debounceJob: Job? = null
 
     fun markProcessed(id: Long, uri: Uri? = null) {
@@ -37,16 +39,29 @@ class ScreenshotObserver(
     override fun onChange(selfChange: Boolean, uri: Uri?) {
         super.onChange(selfChange, uri)
         Log.d(TAG, "MediaStore change detected: $uri")
+        scheduleRecentScreenshotScan()
+    }
 
+    fun scanRecentScreenshots() {
+        scheduleRecentScreenshotScan(delayMillis = 0L)
+    }
+
+    private fun scheduleRecentScreenshotScan(delayMillis: Long = INITIAL_SCAN_DELAY_MS) {
         debounceJob?.cancel()
         debounceJob = scope.launch(Dispatchers.IO) {
-            // Small initial debounce to let screenshot writer finish flushing image data
-            delay(350)
-            checkLatestScreenshot(attempt = 1)
+            delay(delayMillis)
+            scope.launch(Dispatchers.IO) {
+                scanMutex.withLock {
+                    for (attempt in 1..MAX_ATTEMPTS) {
+                        if (!checkRecentScreenshots(attempt)) return@withLock
+                        if (attempt < MAX_ATTEMPTS) delay(RETRY_DELAY_MS * attempt)
+                    }
+                }
+            }
         }
     }
 
-    private suspend fun checkLatestScreenshot(attempt: Int = 1) {
+    private suspend fun checkRecentScreenshots(attempt: Int): Boolean {
         val projection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             arrayOf(
                 MediaStore.Images.Media._ID,
@@ -67,129 +82,114 @@ class ScreenshotObserver(
                 MediaStore.Images.Media.DATA
             )
         }
-
-        val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
+        val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC, ${MediaStore.Images.Media._ID} DESC"
+        val pathColumnName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Images.Media.RELATIVE_PATH
+        } else {
+            MediaStore.Images.Media.DATA
+        }
         val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
         } else {
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI
         }
+        val cutoff = System.currentTimeMillis() / 1000 - RECENT_WINDOW_SECONDS
 
         try {
             val cursor = context.contentResolver.query(
                 collection,
                 projection,
-                null,
-                null,
+                "${MediaStore.Images.Media.DATE_ADDED} >= ? AND " +
+                    "(${MediaStore.Images.Media.DISPLAY_NAME} LIKE ? OR $pathColumnName LIKE ?)",
+                arrayOf(cutoff.toString(), "%Screenshot%", "%Screenshots%"),
                 sortOrder
-            )
+            ) ?: run {
+                Log.w(TAG, "MediaStore returned no cursor while scanning for screenshots")
+                return false
+            }
 
-            cursor?.use {
-                if (it.moveToFirst()) {
-                    val idColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-                    val nameColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
-                    val dateColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
-                    val sizeColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
-                    val mimeColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
-                    val pathColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        it.getColumnIndexOrThrow(MediaStore.Images.Media.RELATIVE_PATH)
-                    } else {
-                        it.getColumnIndexOrThrow(MediaStore.Images.Media.DATA)
-                    }
+            cursor.use {
+                val idColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                val nameColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+                val dateColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
+                val sizeColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
+                val mimeColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
+                val pathColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    it.getColumnIndexOrThrow(MediaStore.Images.Media.RELATIVE_PATH)
+                } else {
+                    it.getColumnIndexOrThrow(MediaStore.Images.Media.DATA)
+                }
+                val isPendingIndex = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    it.getColumnIndex(MediaStore.Images.Media.IS_PENDING)
+                } else {
+                    -1
+                }
 
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        val isPendingIndex = it.getColumnIndex(MediaStore.Images.Media.IS_PENDING)
-                        if (isPendingIndex != -1 && it.getInt(isPendingIndex) == 1) {
-                            Log.d(TAG, "Screenshot is still pending/writing (attempt $attempt), retrying...")
-                            if (attempt < 4) {
-                                scope.launch(Dispatchers.IO) {
-                                    delay(250L * attempt)
-                                    checkLatestScreenshot(attempt + 1)
-                                }
-                            }
-                            return
-                        }
-                    }
-
+                var scannedRows = 0
+                while (it.moveToNext() && scannedRows++ < MAX_ROWS_TO_SCAN) {
                     val id = it.getLong(idColumn)
-                    val name = it.getString(nameColumn) ?: ""
+                    val name = it.getString(nameColumn).orEmpty()
                     val dateAdded = it.getLong(dateColumn)
                     val size = it.getLong(sizeColumn)
                     val mime = it.getString(mimeColumn) ?: "image/png"
-                    val path = it.getString(pathColumn) ?: ""
+                    val path = it.getString(pathColumn).orEmpty()
+                    if (dateAdded < cutoff || !ScreenshotDetection.isScreenshotCandidate(name, path)) continue
 
-                    // If file is 0 bytes, it might still be flushing to storage
-                    if (size <= 0 && attempt < 4) {
-                        Log.d(TAG, "Screenshot size is 0 bytes (attempt $attempt), scheduling retry...")
-                        scope.launch(Dispatchers.IO) {
-                            delay(250L * attempt)
-                            checkLatestScreenshot(attempt + 1)
-                        }
-                        return
-                    }
-
-                    // Check if already processed
                     val contentUri = ContentUris.withAppendedId(collection, id)
-                    if (processedIds.contains(id) || processedUris.contains(contentUri.toString())) {
-                        return
-                    }
+                    if (processedIds.contains(id) || processedUris.contains(contentUri.toString())) continue
 
-                    // Verify if it's in an already categorized subfolder
-                    val normalizedPath = path.replace('\\', '/').trim('/')
-                    val isCategorizedSubfolder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        normalizedPath.startsWith("Pictures/Screenshots/", ignoreCase = true) &&
-                                normalizedPath.length > "Pictures/Screenshots/".length
-                    } else {
-                        val file = java.io.File(path)
-                        val parentName = file.parentFile?.name ?: ""
-                        parentName != "Screenshots" && path.contains("Screenshots", ignoreCase = true)
-                    }
-
-                    if (isCategorizedSubfolder) {
+                    if (ScreenshotDetection.isCategorizedSubfolder(
+                            path,
+                            scopedStorage = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                        )
+                    ) {
                         Log.d(TAG, "Ignoring screenshot in categorized subfolder: $path")
                         markProcessed(id, contentUri)
-                        return
+                        continue
                     }
 
-                    // Verify if it's a screenshot
-                    val currentTimeSec = System.currentTimeMillis() / 1000
-                    val isRecent = (currentTimeSec - dateAdded) < 45 // within last 45 seconds
-                    val isScreenshotPath = path.contains("Screenshots", ignoreCase = true)
-                    val isScreenshotName = name.contains("Screenshot", ignoreCase = true)
-
-                    if (isRecent && (isScreenshotPath || isScreenshotName)) {
-                        markProcessed(id, contentUri)
-                        Log.d(TAG, "Confirmed new screenshot: $name at $contentUri")
-
-                        // Load preview bitmap & extract dynamic palette
-                        val bitmap = MediaStoreOrganizer.loadThumbnail(context, contentUri, targetSize = 350)
-                        val palette = bitmap?.let { bmp -> PaletteExtractor.extractColors(bmp) }
-                            ?: com.screenarc.app.model.DynamicPaletteColors()
-
-                        val item = ScreenshotItem(
-                            id = id,
-                            uri = contentUri,
-                            displayName = name,
-                            dateAdded = dateAdded,
-                            size = size,
-                            relativePath = path,
-                            mimeType = mime,
-                            bitmapPreview = bitmap,
-                            paletteColors = palette
-                        )
-
-                        scope.launch(Dispatchers.Main) {
-                            onScreenshotDetected(item)
-                        }
+                    val isPending = isPendingIndex != -1 && it.getInt(isPendingIndex) == 1
+                    if (isPending || size <= 0L) {
+                        Log.d(TAG, "Screenshot is still being written (attempt $attempt): $name")
+                        return true
                     }
+
+                    markProcessed(id, contentUri)
+                    Log.d(TAG, "Confirmed new screenshot: $name at $contentUri")
+
+                    val bitmap = MediaStoreOrganizer.loadThumbnail(context, contentUri, targetSize = 350)
+                    val palette = bitmap?.let { PaletteExtractor.extractColors(it) }
+                        ?: com.screenarc.app.model.DynamicPaletteColors()
+                    val item = ScreenshotItem(
+                        id = id,
+                        uri = contentUri,
+                        displayName = name,
+                        dateAdded = dateAdded,
+                        size = size,
+                        relativePath = path,
+                        mimeType = mime,
+                        bitmapPreview = bitmap,
+                        paletteColors = palette
+                    )
+                    scope.launch(Dispatchers.Main) {
+                        onScreenshotDetected(item)
+                    }
+                    return false
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error checking latest screenshot: ${e.message}", e)
+            return false
         }
+        return false
     }
 
     companion object {
         private const val TAG = "ScreenshotObserver"
+        private const val INITIAL_SCAN_DELAY_MS = 350L
+        private const val RETRY_DELAY_MS = 250L
+        private const val MAX_ATTEMPTS = 4
+        private const val MAX_ROWS_TO_SCAN = 100
+        private const val RECENT_WINDOW_SECONDS = 90L
     }
 }

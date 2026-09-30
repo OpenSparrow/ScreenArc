@@ -20,8 +20,9 @@ import com.screenarc.app.model.ScreenshotItem
 import com.screenarc.app.palette.PaletteExtractor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.InputStream
-import java.io.OutputStream
+import java.io.File
+import java.io.FileOutputStream
+import java.time.Instant
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -36,51 +37,81 @@ object MediaStoreOrganizer {
         context: Context,
         screenshot: ScreenshotItem,
         category: Category
+    ): Result<Uri> = moveToRelativeFolder(
+        context = context,
+        screenshot = screenshot,
+        targetRelativePath = "Pictures/Screenshots/${category.subfolderName}/"
+    )
+
+    suspend fun moveToRelativeFolder(
+        context: Context,
+        screenshot: ScreenshotItem,
+        targetRelativePath: String
     ): Result<Uri> = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
-        val relativeSubfolder = "Pictures/Screenshots/${category.subfolderName}/"
+        val relativeSubfolder = try {
+            normalizeScreenshotRelativePath(targetRelativePath)
+        } catch (e: IllegalArgumentException) {
+            return@withContext Result.failure(e)
+        }
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // Try direct metadata update first (fastest and keeps same URI)
+                val destinationName = uniqueDisplayName(
+                    resolver = resolver,
+                    screenshot = screenshot,
+                    targetRelativePath = relativeSubfolder
+                )
                 val updateValues = ContentValues().apply {
                     put(MediaStore.Images.Media.RELATIVE_PATH, relativeSubfolder)
-                    put(MediaStore.Images.Media.IS_PENDING, 0)
+                    put(MediaStore.Images.Media.DISPLAY_NAME, destinationName)
                 }
 
                 try {
                     val rows = resolver.update(screenshot.uri, updateValues, null, null)
                     if (rows > 0) {
-                        Log.d(TAG, "Successfully updated relative path via MediaStore for ${screenshot.displayName}")
+                        Log.d(TAG, "Moved ${screenshot.displayName} to $relativeSubfolder via MediaStore")
                         return@withContext Result.success(screenshot.uri)
                     }
                 } catch (secEx: SecurityException) {
-                    Log.w(TAG, "Direct update threw SecurityException, falling back to copy-and-insert: ${secEx.message}")
+                    Log.w(TAG, "MediaStore update denied; using copy-and-delete fallback: ${secEx.message}")
                 }
 
-                // Fallback: Copy content to new URI in destination folder and delete original
-                val newUri = copyToNewFolder(context, screenshot, relativeSubfolder)
-                if (newUri != null) {
-                    try {
-                        resolver.delete(screenshot.uri, null, null)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Could not delete original after copy: ${e.message}")
+                val newUri = copyToNewFolder(context, screenshot, relativeSubfolder, destinationName)
+                    ?: return@withContext Result.failure(Exception("Could not copy screenshot to $relativeSubfolder"))
+                try {
+                    check(resolver.delete(screenshot.uri, null, null) > 0) {
+                        "Copied screenshot but could not remove the original"
                     }
-                    return@withContext Result.success(newUri)
+                } catch (e: Exception) {
+                    try {
+                        resolver.delete(newUri, null, null)
+                    } catch (cleanupError: Exception) {
+                        e.addSuppressed(cleanupError)
+                    }
+                    return@withContext Result.failure(e)
                 }
+                return@withContext Result.success(newUri)
             } else {
-                // Pre-Android 10 legacy fallback
-                val newUri = copyToNewFolderPreQ(context, screenshot, category.subfolderName)
+                val subfolder = relativeSubfolder.removePrefix("Pictures/Screenshots/").removeSuffix("/")
+                val newUri = copyToNewFolderPreQ(context, screenshot, subfolder)
                 if (newUri != null) {
                     try {
-                        resolver.delete(screenshot.uri, null, null)
+                        check(resolver.delete(screenshot.uri, null, null) > 0) {
+                            "Copied screenshot but could not remove the original"
+                        }
                     } catch (e: Exception) {
-                        Log.w(TAG, "Could not delete original: ${e.message}")
+                        try {
+                            resolver.delete(newUri, null, null)
+                        } catch (cleanupError: Exception) {
+                            e.addSuppressed(cleanupError)
+                        }
+                        return@withContext Result.failure(e)
                     }
                     return@withContext Result.success(newUri)
                 }
             }
-            Result.failure(Exception("Failed to move screenshot to ${category.name}"))
+            Result.failure(Exception("Failed to move screenshot to $relativeSubfolder"))
         } catch (e: Exception) {
             Log.e(TAG, "Error moving screenshot: ${e.message}", e)
             Result.failure(e)
@@ -92,51 +123,67 @@ object MediaStoreOrganizer {
         screenshot: ScreenshotItem,
         targetRelativePath: String
     ): Uri? = withContext(Dispatchers.IO) {
+        val normalizedPath = try {
+            normalizeScreenshotRelativePath(targetRelativePath)
+        } catch (e: IllegalArgumentException) {
+            Log.e(TAG, "Invalid screenshot destination path: ${e.message}", e)
+            return@withContext null
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            copyToNewFolder(context, screenshot, targetRelativePath)
+            val displayName = uniqueDisplayName(context.contentResolver, screenshot, normalizedPath)
+            copyToNewFolder(context, screenshot, normalizedPath, displayName)
         } else {
-            val subfolder = targetRelativePath.removePrefix("Pictures/Screenshots/").removeSuffix("/")
+            val subfolder = normalizedPath.removePrefix("Pictures/Screenshots/").removeSuffix("/")
             copyToNewFolderPreQ(context, screenshot, subfolder)
         }
+    }
+
+    suspend fun getDisplayName(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
+        val projection = arrayOf(MediaStore.Images.Media.DISPLAY_NAME)
+        context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME))
+                    ?.takeIf { it.isNotBlank() }
+                    ?: throw IllegalStateException("MediaStore returned an empty display name for $uri")
+            } else {
+                throw IllegalStateException("MediaStore could not find moved screenshot $uri")
+            }
+        } ?: throw IllegalStateException("MediaStore could not query moved screenshot $uri")
     }
 
     private fun copyToNewFolder(
         context: Context,
         screenshot: ScreenshotItem,
-        targetRelativePath: String
+        targetRelativePath: String,
+        displayName: String
     ): Uri? {
         val resolver = context.contentResolver
         val contentValues = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, screenshot.displayName)
+            put(MediaStore.Images.Media.DISPLAY_NAME, displayName)
             put(MediaStore.Images.Media.MIME_TYPE, screenshot.mimeType.ifEmpty { "image/png" })
             put(MediaStore.Images.Media.RELATIVE_PATH, targetRelativePath)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.Images.Media.IS_PENDING, 1)
-            }
+            put(MediaStore.Images.Media.IS_PENDING, 1)
         }
 
-        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        } else {
-            MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-        }
+        val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
 
         val newUri = resolver.insert(collection, contentValues) ?: return null
 
-        try {
-            resolver.openInputStream(screenshot.uri)?.use { input ->
+        return try {
+            val copiedBytes = resolver.openInputStream(screenshot.uri)?.use { input ->
                 resolver.openOutputStream(newUri)?.use { output ->
                     input.copyTo(output)
-                }
-            }
+                } ?: throw IllegalStateException("Could not open destination stream")
+            } ?: throw IllegalStateException("Could not open source stream")
+            check(copiedBytes > 0L) { "Screenshot copy was empty" }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val publishValues = ContentValues().apply {
-                    put(MediaStore.Images.Media.IS_PENDING, 0)
-                }
-                resolver.update(newUri, publishValues, null, null)
+            val publishValues = ContentValues().apply {
+                put(MediaStore.Images.Media.IS_PENDING, 0)
             }
-            return newUri
+            check(resolver.update(newUri, publishValues, null, null) > 0) {
+                "Could not publish copied screenshot"
+            }
+            newUri
         } catch (e: Exception) {
             Log.e(TAG, "Failed stream copy: ${e.message}", e)
             resolver.delete(newUri, null, null)
@@ -150,23 +197,142 @@ object MediaStoreOrganizer {
         subfolderName: String
     ): Uri? {
         val resolver = context.contentResolver
-        val contentValues = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, screenshot.displayName)
-            put(MediaStore.Images.Media.MIME_TYPE, screenshot.mimeType.ifEmpty { "image/png" })
+        val screenshotsDirectory = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+            "Screenshots"
+        ).canonicalFile
+        val destinationDirectory = File(screenshotsDirectory, subfolderName).canonicalFile
+        require(destinationDirectory.path.startsWith(screenshotsDirectory.path + File.separator) ||
+            destinationDirectory == screenshotsDirectory
+        ) { "Screenshot destination must be inside Pictures/Screenshots" }
+        if (!destinationDirectory.exists() && !destinationDirectory.mkdirs()) {
+            throw IllegalStateException("Could not create screenshot destination folder")
         }
-        val newUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues) ?: return null
 
+        val destinationFile = availableLegacyDestination(destinationDirectory, screenshot.displayName)
+        val temporaryFile = File(destinationDirectory, ".${destinationFile.name}.${System.nanoTime()}.tmp")
         return try {
-            resolver.openInputStream(screenshot.uri)?.use { input ->
-                resolver.openOutputStream(newUri)?.use { output ->
-                    input.copyTo(output)
-                }
+            val copiedBytes = resolver.openInputStream(screenshot.uri)?.use { input ->
+                FileOutputStream(temporaryFile).use { output -> input.copyTo(output) }
+            } ?: throw IllegalStateException("Could not open source screenshot")
+            check(copiedBytes > 0L) { "Screenshot copy was empty" }
+            check(temporaryFile.renameTo(destinationFile)) { "Could not finalize screenshot copy" }
+
+            val contentValues = ContentValues().apply {
+                put(MediaStore.Images.Media.DATA, destinationFile.absolutePath)
+                put(MediaStore.Images.Media.DISPLAY_NAME, destinationFile.name)
+                put(MediaStore.Images.Media.MIME_TYPE, screenshot.mimeType.ifEmpty { "image/png" })
+            }
+            val newUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+            if (newUri == null) {
+                destinationFile.delete()
+                return null
             }
             newUri
         } catch (e: Exception) {
-            resolver.delete(newUri, null, null)
+            temporaryFile.delete()
+            destinationFile.delete()
+            Log.e(TAG, "Failed legacy storage copy: ${e.message}", e)
             null
         }
+    }
+
+    private fun availableLegacyDestination(directory: File, originalName: String): File {
+        val original = File(directory, originalName)
+        if (!original.exists()) return original
+
+        val extensionIndex = originalName.lastIndexOf('.').takeIf { it > 0 } ?: originalName.length
+        val baseName = originalName.substring(0, extensionIndex)
+        val extension = originalName.substring(extensionIndex)
+        val timestamp = Instant.now().toString()
+        var candidate = File(directory, "${baseName}_$timestamp$extension")
+        var suffix = 1
+        while (candidate.exists()) {
+            candidate = File(directory, "${baseName}_${timestamp}_${suffix++}$extension")
+        }
+        return candidate
+    }
+
+    private fun uniqueDisplayName(
+        resolver: ContentResolver,
+        screenshot: ScreenshotItem,
+        targetRelativePath: String
+    ): String {
+        val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        if (!displayNameExists(
+                resolver,
+                collection,
+                targetRelativePath,
+                screenshot.displayName,
+                screenshot.uri,
+                screenshot.relativePath
+            )
+        ) {
+            return screenshot.displayName
+        }
+
+        val extensionIndex = screenshot.displayName.lastIndexOf('.')
+            .takeIf { it > 0 }
+            ?: screenshot.displayName.length
+        val baseName = screenshot.displayName.substring(0, extensionIndex)
+        val extension = screenshot.displayName.substring(extensionIndex)
+        val timestampedName = "${baseName}_${Instant.now()}$extension"
+        var candidate = timestampedName
+        var suffix = 1
+        while (displayNameExists(
+                resolver,
+                collection,
+                targetRelativePath,
+                candidate,
+                screenshot.uri,
+                screenshot.relativePath
+            )
+        ) {
+            candidate = "${baseName}_${Instant.now()}_${suffix++}$extension"
+        }
+        return candidate
+    }
+
+    private fun displayNameExists(
+        resolver: ContentResolver,
+        collection: Uri,
+        relativePath: String,
+        displayName: String,
+        sourceUri: Uri,
+        sourceRelativePath: String
+    ): Boolean {
+        val projection = arrayOf(MediaStore.Images.Media._ID)
+        val selection = "${MediaStore.Images.Media.RELATIVE_PATH} = ? AND ${MediaStore.Images.Media.DISPLAY_NAME} = ?"
+        val cursor = resolver.query(collection, projection, selection, arrayOf(relativePath, displayName), null)
+            ?: throw IllegalStateException("Could not check destination filename in MediaStore")
+        cursor.use {
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+            while (cursor.moveToNext()) {
+                val existingId = cursor.getLong(idColumn)
+                val isSource = sourceRelativePath.trimEnd('/') == relativePath.trimEnd('/') &&
+                    sourceUri.lastPathSegment == existingId.toString()
+                if (!isSource) return true
+            }
+        }
+        return false
+    }
+
+    private fun normalizeScreenshotRelativePath(path: String): String {
+        val segments = path.replace('\\', '/').split('/').filter(String::isNotBlank)
+        require(segments.isNotEmpty() && segments.none { it == "." || it == ".." }) {
+            "Invalid screenshot destination path"
+        }
+        val normalizedSegments = when {
+            segments.first().equals("Pictures", ignoreCase = true) -> {
+                require(segments.size >= 2 && segments[1].equals("Screenshots", ignoreCase = true)) {
+                    "Destinations must be inside Pictures/Screenshots"
+                }
+                segments
+            }
+            segments.first().equals("Screenshots", ignoreCase = true) -> listOf("Pictures") + segments
+            else -> listOf("Pictures", "Screenshots") + segments
+        }
+        return normalizedSegments.joinToString("/", postfix = "/")
     }
 
 

@@ -64,6 +64,7 @@ ScreenArc is an intelligent, privacy-focused Android application designed to aut
 - **Radial Arc Menu:** Responsive circular drop targets for up to 8 categories with spring physics.
 - **Paginated Drop Tray:** Automatically switches to a multi-column tray for larger category collections (> 8).
 - **Dynamic Palette Theming:** Extracts palette colors from screenshot thumbnails to tint hovered chips.
+- **Screenshot Detection Recovery:** Scans recent MediaStore images instead of assuming the newest image is a screenshot, retries captures that are still being written, and rescans/re-attaches the overlay when the app resumes after settings changes.
 
 ---
 
@@ -138,6 +139,9 @@ ScreenArc is an intelligent, privacy-focused Android application designed to aut
 - **Rule Scope Options:** Supports `onlyNewScreenshots = true` (only operates on unorganized screenshots where `categoryId == null`) and `onlyNewScreenshots = false` (re-evaluates all screenshots).
 - **Execution Lifecycle:** Rules can be executed on-demand individually via the play button beside each rule in Settings, or in batch via "Run All Active Rules".
 - **Provenance Logging:** Categorized images record `ruleName = rule.name` and `triggerType = "RULE"` in `OrganizedHistoryRepository`.
+- **OCR Routing Engine:** The `RuleEvaluationEngine` also supports `CONTAINS_ANY`, `CONTAINS_ALL`, `MATCHES_REGEX`, and `DOMAINS_MATCH` conditions, integer priority weights, category tags, and an Unsorted destination. Its default rules cover receipts, development, social media, shopping, and travel tickets.
+- **Sparse OCR Enrichment:** A caller may inject a `WebEnrichmentProvider` to enrich sparse OCR with visual labels or barcode results. Enrichment is opt-in; no network service is contacted by default. `ScreenshotRoutingService` runs evaluation and MediaStore routing on `Dispatchers.IO`.
+- **Scoped MediaStore Moves:** Routed destinations are restricted to `Pictures/Screenshots`, existing names receive an ISO-8601 timestamp suffix, and copy fallbacks remain pending until the complete stream has been written.
 
 ### 2. Bulk Selection & Categorization
 - **Multi-Select Workflow:** Checkbox selection over search and screenshot lists with Select All, Deselect All, and Bulk Move dialogs.
@@ -172,3 +176,5 @@ ScreenArc is an intelligent, privacy-focused Android application designed to aut
 # Build debug APK
 ./gradlew assembleDebug
 ```
+
+GitHub Actions runs the unit tests and builds a debug APK on every push and pull request. Download the `screenarc-debug-apk` artifact from the successful workflow run.
