@@ -59,6 +59,20 @@ class CategoryRepository(private val context: Context) {
         OverlayEventBus.postEvent(OverlayEvent.CategoriesChanged(currentCategories))
     }
 
+    /**
+     * Sanitizes a folder name to prevent path traversal and invalid characters.
+     */
+    private fun sanitizeFolderName(name: String): String {
+        // Remove path separators and common invalid filename characters
+        val sanitized = name.replace(Regex("[\\\\/:*?\"<>|]"), "")
+        // Prevent pure relative paths like ".", ".."
+        return if (sanitized.all { it == '.' }) {
+            "CustomCategory"
+        } else {
+            sanitized
+        }
+    }
+
     suspend fun addCategory(
         name: String,
         subfolder: String,
@@ -66,7 +80,9 @@ class CategoryRepository(private val context: Context) {
         colorHex: Long
     ): Long = withContext(Dispatchers.IO) {
         val cleanName = name.trim()
-        val cleanSubfolder = if (subfolder.isBlank()) cleanName else subfolder.trim()
+        val rawSubfolder = if (subfolder.isBlank()) cleanName else subfolder.trim()
+        val cleanSubfolder = sanitizeFolderName(rawSubfolder)
+
         val currentCount = categoryDao.getCategoryCount()
 
         val newEntity = CategoryEntity(
@@ -88,17 +104,18 @@ class CategoryRepository(private val context: Context) {
     }
 
     suspend fun updateCategory(category: CategoryUiModel) = withContext(Dispatchers.IO) {
+        val cleanSubfolder = sanitizeFolderName(category.subfolderName.trim())
         val entity = CategoryEntity(
             id = category.id,
             name = category.name.trim(),
-            subfolderName = category.subfolderName.trim(),
+            subfolderName = cleanSubfolder,
             iconName = category.iconName,
             colorHex = category.colorHex,
             isDefault = category.isDefault,
             orderIndex = category.orderIndex
         )
         categoryDao.updateCategory(entity)
-        createCategoryDirectory(category.subfolderName)
+        createCategoryDirectory(cleanSubfolder)
         refreshOverlayCategories()
     }
 
@@ -112,16 +129,17 @@ class CategoryRepository(private val context: Context) {
         for (imported in importedCategories) {
             val match = existing.find { it.name.equals(imported.name, ignoreCase = true) }
             if (match == null) {
+                val cleanSubfolder = sanitizeFolderName(imported.subfolderName.trim())
                 val entity = CategoryEntity(
                     name = imported.name.trim(),
-                    subfolderName = imported.subfolderName.trim(),
+                    subfolderName = cleanSubfolder,
                     iconName = imported.iconName,
                     colorHex = imported.colorHex,
                     isDefault = false,
                     orderIndex = existing.size
                 )
                 categoryDao.insertCategory(entity)
-                createCategoryDirectory(imported.subfolderName.trim())
+                createCategoryDirectory(cleanSubfolder)
             }
         }
         refreshOverlayCategories()
@@ -138,8 +156,14 @@ class CategoryRepository(private val context: Context) {
             val picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
             val screenshotsDir = File(picturesDir, "Screenshots")
             val targetDir = File(screenshotsDir, subfolderName)
-            if (!targetDir.exists()) {
-                targetDir.mkdirs()
+
+            // Defense in depth: Ensure canonical path stays within the intended directory
+            if (targetDir.canonicalPath.startsWith(screenshotsDir.canonicalPath + File.separator) || targetDir.canonicalPath == screenshotsDir.canonicalPath) {
+                if (!targetDir.exists()) {
+                    targetDir.mkdirs()
+                }
+            } else {
+                Log.w("CategoryRepository", "Path traversal detected and blocked: ${targetDir.canonicalPath}")
             }
         } catch (e: Exception) {
             Log.w("CategoryRepository", "Could not directly create directory on storage: ${e.message}")
