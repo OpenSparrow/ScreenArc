@@ -1,0 +1,4 @@
+## 2024-05-18 - [Path Traversal in Category Directories]
+**Vulnerability:** The application creates custom subfolders inside the external `Pictures/Screenshots/` directory based on user input or imported JSON configuration without sanitization. An attacker could specify `../` to write arbitrary folders outside the intended location.
+**Learning:** This Android app relies on external storage organization via MediaStore and direct file operations. Unsanitized strings in relative paths directly translate to device-level directory creation risks.
+**Prevention:** Implement `sanitizeFolderName` to strip path separator characters (`\`, `/`) from input, disallow exclusively relative modifiers (like `.` or `..`), and enforce a defense-in-depth check utilizing `File.canonicalPath.startsWith(intendedParent.canonicalPath + File.separator)` when creating directories.
