@@ -86,6 +86,15 @@ fun OcrResultDialog(
     val isFailed = ocrResult?.success == false || (!isLoading && screenshot.ocrStatus == "FAILED")
     val blocksCount = ocrResult?.blocks?.size ?: 0
 
+    // Smart Entity Extraction
+    val extractedEntities = remember(rawText) {
+        if (hasText) com.screenarc.app.util.SmartEntityExtractor.extractEntities(rawText) else emptyList()
+    }
+    val hasOtp = remember(rawText) {
+        com.screenarc.app.util.SmartEntityExtractor.hasOtp(rawText)
+    }
+    var autoDeleteOtpEnabled by remember { mutableStateOf(false) }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -246,7 +255,102 @@ fun OcrResultDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                // Smart Entity Action Chips
+                if (extractedEntities.isNotEmpty()) {
+                    androidx.compose.foundation.lazy.LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(extractedEntities.size) { idx ->
+                            val entity = extractedEntities[idx]
+                            androidx.compose.material3.AssistChip(
+                                onClick = {
+                                    when (entity.type) {
+                                        com.screenarc.app.util.EntityType.URL -> {
+                                            try {
+                                                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(entity.value))
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Could not open link", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                        com.screenarc.app.util.EntityType.UPI -> {
+                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                            clipboard.setPrimaryClip(ClipData.newPlainText("UPI ID", entity.value))
+                                            Toast.makeText(context, "UPI ID copied: ${entity.value}", Toast.LENGTH_SHORT).show()
+                                        }
+                                        com.screenarc.app.util.EntityType.OTP -> {
+                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                            clipboard.setPrimaryClip(ClipData.newPlainText("OTP Code", entity.value))
+                                            Toast.makeText(context, "OTP Code copied: ${entity.value}", Toast.LENGTH_SHORT).show()
+                                        }
+                                        com.screenarc.app.util.EntityType.PHONE -> {
+                                            try {
+                                                val intent = Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:${entity.value}"))
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Could not launch dialer", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                        com.screenarc.app.util.EntityType.EMAIL -> {
+                                            try {
+                                                val intent = Intent(Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:${entity.value}"))
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Could not launch email", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                },
+                                label = { Text(entity.label, style = MaterialTheme.typography.labelSmall) },
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
+                // OTP Auto-delete toggle (24h)
+                if (hasOtp) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Auto-delete in 24 hours",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Detected OTP code. Schedule screenshot cleanup in 24 hours.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            androidx.compose.material3.Switch(
+                                checked = autoDeleteOtpEnabled,
+                                onCheckedChange = { checked ->
+                                    autoDeleteOtpEnabled = checked
+                                    if (checked) {
+                                        com.screenarc.app.worker.OtpAutoDeleteWorker.scheduleAutoDelete(context, screenshot.uri)
+                                        Toast.makeText(context, "Auto-delete scheduled for 24 hours", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        com.screenarc.app.worker.OtpAutoDeleteWorker.cancelAutoDelete(context, screenshot.uri)
+                                        Toast.makeText(context, "Auto-delete cancelled", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
 
                 // Recognized Text Area / Processing Status
                 Surface(

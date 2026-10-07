@@ -3,17 +3,10 @@ package com.screenarc.app.data
 import android.content.Context
 import android.content.SharedPreferences
 import com.screenarc.app.model.AppThemePreset
-import com.screenarc.app.model.ThemeCategory
 import com.screenarc.app.ocr.OcrLanguage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-
-enum class OcrProcessingMode {
-    MANUAL_ONLY,
-    ASK_BEFORE_PROCESSING,
-    AUTOMATIC
-}
 
 enum class UiDesignStyle(val id: String, val displayName: String, val subtitle: String) {
     MATERIAL("material", "Material UI", "Clean Material 3 surfaces with standard elevation and borders"),
@@ -29,14 +22,13 @@ data class AppSettings(
     val dynamicPaletteEnabled: Boolean = true,
     val autoExpandOnCapture: Boolean = true,
     val playSoundOnDrop: Boolean = false,
-    val ocrProcessingMode: OcrProcessingMode = OcrProcessingMode.ASK_BEFORE_PROCESSING,
     val ocrLanguage: OcrLanguage = OcrLanguage.DEVANAGARI,
     val arcDesignStyle: com.screenarc.app.model.ArcDesignStyle = com.screenarc.app.model.ArcDesignStyle.ORBIT,
     val autoOcrEnabled: Boolean = false,
     val autoAssignRulesEnabled: Boolean = false,
+    val autoArchiveDays: Int = 0, // 0 = Off, 30, 60, 90 days
     val themePreset: AppThemePreset = AppThemePreset.DYNAMIC_SYSTEM,
-    val uiDesignStyle: UiDesignStyle = UiDesignStyle.MATERIAL,
-    val selectedThemeCategory: ThemeCategory = ThemeCategory.ALL
+    val uiDesignStyle: UiDesignStyle = UiDesignStyle.MATERIAL
 )
 
 class AppSettingsRepository(context: Context) {
@@ -46,11 +38,17 @@ class AppSettingsRepository(context: Context) {
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
     private fun loadSettings(): AppSettings {
-        val ocrModeName = prefs.getString("ocr_processing_mode", OcrProcessingMode.ASK_BEFORE_PROCESSING.name)
-        val ocrMode = try {
-            OcrProcessingMode.valueOf(ocrModeName ?: OcrProcessingMode.ASK_BEFORE_PROCESSING.name)
-        } catch (e: Exception) {
-            OcrProcessingMode.ASK_BEFORE_PROCESSING
+        // Migration: If legacy ocr_processing_mode exists and auto_ocr_enabled hasn't been set explicitly,
+        // map "AUTOMATIC" to true, everything else to false.
+        val autoOcr = if (prefs.contains("auto_ocr_enabled")) {
+            prefs.getBoolean("auto_ocr_enabled", false)
+        } else if (prefs.contains("ocr_processing_mode")) {
+            val legacyMode = prefs.getString("ocr_processing_mode", null)
+            val mappedValue = legacyMode == "AUTOMATIC"
+            prefs.edit().putBoolean("auto_ocr_enabled", mappedValue).remove("ocr_processing_mode").apply()
+            mappedValue
+        } else {
+            false
         }
 
         val langId = prefs.getString("ocr_language", OcrLanguage.DEVANAGARI.id)
@@ -73,10 +71,6 @@ class AppSettingsRepository(context: Context) {
             UiDesignStyle.MATERIAL
         }
 
-        val themeCategoryName = prefs.getString("selected_theme_category", ThemeCategory.ALL.name)
-        val themeCategory = ThemeCategory.fromName(themeCategoryName, ThemeCategory.ALL)
-
-        val autoOcr = prefs.getBoolean("auto_ocr_enabled", false)
         val autoRules = prefs.getBoolean("auto_assign_rules_enabled", false)
 
         return AppSettings(
@@ -88,14 +82,13 @@ class AppSettingsRepository(context: Context) {
             dynamicPaletteEnabled = prefs.getBoolean("dynamic_palette_enabled", true),
             autoExpandOnCapture = prefs.getBoolean("auto_expand_capture", true),
             playSoundOnDrop = prefs.getBoolean("play_sound_drop", false),
-            ocrProcessingMode = ocrMode,
             ocrLanguage = ocrLang,
             arcDesignStyle = arcStyle,
             autoOcrEnabled = autoOcr,
             autoAssignRulesEnabled = if (autoOcr) autoRules else false,
+            autoArchiveDays = prefs.getInt("auto_archive_days", 0),
             themePreset = themePreset,
-            uiDesignStyle = uiStyle,
-            selectedThemeCategory = themeCategory
+            uiDesignStyle = uiStyle
         )
     }
 
@@ -117,26 +110,15 @@ class AppSettingsRepository(context: Context) {
             putBoolean("dynamic_palette_enabled", finalUpdated.dynamicPaletteEnabled)
             putBoolean("auto_expand_capture", finalUpdated.autoExpandOnCapture)
             putBoolean("play_sound_drop", finalUpdated.playSoundOnDrop)
-            putString("ocr_processing_mode", finalUpdated.ocrProcessingMode.name)
             putString("ocr_language", finalUpdated.ocrLanguage.id)
             putString("arc_design_style", finalUpdated.arcDesignStyle.name)
             putBoolean("auto_ocr_enabled", finalUpdated.autoOcrEnabled)
             putBoolean("auto_assign_rules_enabled", finalUpdated.autoAssignRulesEnabled)
+            putInt("auto_archive_days", finalUpdated.autoArchiveDays)
             putString("theme_preset", finalUpdated.themePreset.id)
             putString("ui_design_style", finalUpdated.uiDesignStyle.name)
-            putString("selected_theme_category", finalUpdated.selectedThemeCategory.name)
         }.apply()
         _settings.value = finalUpdated
-    }
-
-    fun getSelectedThemeCategory(): ThemeCategory {
-        val name = prefs.getString("selected_theme_category", ThemeCategory.ALL.name)
-        return ThemeCategory.fromName(name, ThemeCategory.ALL)
-    }
-
-    fun setSelectedThemeCategory(category: ThemeCategory) {
-        prefs.edit().putString("selected_theme_category", category.name).apply()
-        _settings.value = _settings.value.copy(selectedThemeCategory = category)
     }
 
     /**

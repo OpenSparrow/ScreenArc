@@ -51,11 +51,6 @@ fun GlassmorphicBackdrop(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
-    if (!isGlassmorphic) {
-        Box(modifier = modifier.fillMaxSize(), content = content)
-        return
-    }
-
     // Subtle breathing animation for ambient aurora orbs
     val infiniteTransition = rememberInfiniteTransition(label = "GlassAurora")
     val animOffset by infiniteTransition.animateFloat(
@@ -68,80 +63,86 @@ fun GlassmorphicBackdrop(
         label = "AuroraOffset"
     )
 
-    Box(
-        modifier = modifier
+    val backgroundModifier = if (isGlassmorphic) {
+        modifier
             .fillMaxSize()
             .background(if (isDark) Color(0xFF0C0916) else Color(0xFFEBF3F8))
-    ) {
-        // Multi-layered glowing ambient orbs
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val width = size.width
-            val height = size.height
+    } else {
+        modifier.fillMaxSize()
+    }
 
-            if (isDark) {
-                // Orb 1: Deep Electric Violet (top-left)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(Color(0xFF7B1FA2).copy(alpha = 0.38f), Color.Transparent),
-                        center = Offset(width * 0.15f + animOffset, height * 0.12f),
-                        radius = width * 0.70f
-                    )
-                )
+    Box(modifier = backgroundModifier) {
+        if (isGlassmorphic) {
+            // Multi-layered glowing ambient orbs
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val width = size.width
+                val height = size.height
 
-                // Orb 2: Neon Cyan / Sapphire (top-right to mid)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(Color(0xFF00E5FF).copy(alpha = 0.24f), Color.Transparent),
-                        center = Offset(width * 0.85f - animOffset, height * 0.35f),
-                        radius = width * 0.75f
+                if (isDark) {
+                    // Orb 1: Deep Electric Violet (top-left)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color(0xFF7B1FA2).copy(alpha = 0.38f), Color.Transparent),
+                            center = Offset(width * 0.15f + animOffset, height * 0.12f),
+                            radius = width * 0.70f
+                        )
                     )
-                )
 
-                // Orb 3: Emerald Aura (center-bottom)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(Color(0xFF00E676).copy(alpha = 0.18f), Color.Transparent),
-                        center = Offset(width * 0.30f + animOffset * 0.5f, height * 0.75f),
-                        radius = width * 0.65f
+                    // Orb 2: Neon Cyan / Sapphire (top-right to mid)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color(0xFF00E5FF).copy(alpha = 0.24f), Color.Transparent),
+                            center = Offset(width * 0.85f - animOffset, height * 0.35f),
+                            radius = width * 0.75f
+                        )
                     )
-                )
 
-                // Orb 4: Magenta Accent (bottom-right)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(Color(0xFFFF4081).copy(alpha = 0.20f), Color.Transparent),
-                        center = Offset(width * 0.80f, height * 0.90f - animOffset * 0.5f),
-                        radius = width * 0.60f
+                    // Orb 3: Emerald Aura (center-bottom)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color(0xFF00E676).copy(alpha = 0.18f), Color.Transparent),
+                            center = Offset(width * 0.30f + animOffset * 0.5f, height * 0.75f),
+                            radius = width * 0.65f
+                        )
                     )
-                )
-            } else {
-                // Light mode aurora: pastel sky blue, peach blossom, and fresh mint
-                // Orb 1: Soft Sky Blue
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(Color(0xFF80D8FF).copy(alpha = 0.55f), Color.Transparent),
-                        center = Offset(width * 0.15f + animOffset, height * 0.15f),
-                        radius = width * 0.70f
-                    )
-                )
 
-                // Orb 2: Soft Peach / Blossom
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(Color(0xFFFFD1DC).copy(alpha = 0.60f), Color.Transparent),
-                        center = Offset(width * 0.85f - animOffset, height * 0.35f),
-                        radius = width * 0.75f
+                    // Orb 4: Magenta Accent (bottom-right)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color(0xFFFF4081).copy(alpha = 0.20f), Color.Transparent),
+                            center = Offset(width * 0.80f, height * 0.90f - animOffset * 0.5f),
+                            radius = width * 0.60f
+                        )
                     )
-                )
+                } else {
+                    // Light mode aurora: pastel sky blue, peach blossom, and fresh mint
+                    // Orb 1: Soft Sky Blue
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color(0xFF80D8FF).copy(alpha = 0.55f), Color.Transparent),
+                            center = Offset(width * 0.15f + animOffset, height * 0.15f),
+                            radius = width * 0.70f
+                        )
+                    )
 
-                // Orb 3: Fresh Mint / Sage
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(Color(0xFFB2DFDB).copy(alpha = 0.50f), Color.Transparent),
-                        center = Offset(width * 0.25f, height * 0.80f),
-                        radius = width * 0.65f
+                    // Orb 2: Soft Peach / Blossom
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color(0xFFFFD1DC).copy(alpha = 0.60f), Color.Transparent),
+                            center = Offset(width * 0.85f - animOffset, height * 0.35f),
+                            radius = width * 0.75f
+                        )
                     )
-                )
+
+                    // Orb 3: Fresh Mint / Sage
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color(0xFFB2DFDB).copy(alpha = 0.50f), Color.Transparent),
+                            center = Offset(width * 0.25f, height * 0.80f),
+                            radius = width * 0.65f
+                        )
+                    )
+                }
             }
         }
 

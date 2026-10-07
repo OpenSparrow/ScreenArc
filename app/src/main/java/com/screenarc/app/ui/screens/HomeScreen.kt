@@ -82,12 +82,14 @@ import com.screenarc.app.service.OverlayService
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 @Composable
 fun HomeScreen(
     categoryRepo: CategoryRepository,
     settingsRepo: AppSettingsRepository,
     historyRepo: OrganizedHistoryRepository,
+    screenshotRepo: com.screenarc.app.data.ScreenshotRepository? = null,
     onNavigateToCategories: () -> Unit,
     onNavigateToSearch: () -> Unit,
     modifier: Modifier = Modifier
@@ -107,7 +109,8 @@ fun HomeScreen(
         contract = ActivityResultContracts.StartActivityForResult()
     ) {
         hasOverlayPermission = Settings.canDrawOverlays(context)
-        if (hasOverlayPermission && settings.isServiceEnabled) {
+        if (hasOverlayPermission) {
+            settingsRepo.updateSettings { it.copy(isServiceEnabled = true) }
             OverlayService.startService(context)
         }
     }
@@ -138,6 +141,23 @@ fun HomeScreen(
         ),
         label = "PulseScale"
     )
+
+    // Duplicates detector state
+    var duplicateGroups by remember { mutableStateOf<List<com.screenarc.app.util.DuplicateGroup>>(emptyList()) }
+    var isScanningDuplicates by remember { mutableStateOf(false) }
+    var showTrashConfirmationGroup by remember { mutableStateOf<com.screenarc.app.util.DuplicateGroup?>(null) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+
+    LaunchedEffect(screenshotRepo) {
+        if (screenshotRepo != null) {
+            isScanningDuplicates = true
+            screenshotRepo.getAllScreenshotsFlow().collect { allItems ->
+                val uiModels = allItems.map { it.toUiModel() }
+                duplicateGroups = com.screenarc.app.util.DuplicateDetector.findDuplicates(context, uiModels)
+                isScanningDuplicates = false
+            }
+        }
+    }
 
     val isGlass = LocalIsGlassmorphic.current
 
@@ -261,6 +281,113 @@ fun HomeScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
                     )
+                }
+            }
+        }
+
+        // Clean Duplicates Card
+        if (duplicateGroups.isNotEmpty()) {
+            item {
+                GlassElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    cornerRadius = 24.dp,
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Clean Duplicates",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primary
+                            ) {
+                                Text(
+                                    text = "${duplicateGroups.sumOf { it.duplicates.size }} duplicates",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Text(
+                            text = "Found ${duplicateGroups.size} group(s) of near-duplicate screenshots taken within 5 minutes.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
+                        )
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        duplicateGroups.forEachIndexed { index, group ->
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Group ${index + 1}: ${group.similarityReason}",
+                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = "Keeping: ${group.primary.displayName}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            maxLines = 1
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                    Text(
+                                        text = "${group.duplicates.size} redundant copy to trash (${group.duplicates.joinToString { it.displayName }})",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2
+                                    )
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    FilledTonalButton(
+                                        onClick = { showTrashConfirmationGroup = group },
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.align(Alignment.End)
+                                    ) {
+                                        Text("Keep Best, Trash Rest")
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -581,4 +708,45 @@ fun HomeScreen(
             }
         }
     }
+
+    // Confirmation dialog for Keep best, Trash rest
+    showTrashConfirmationGroup?.let { group ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showTrashConfirmationGroup = null },
+            title = {
+                Text("Trash ${group.duplicates.size} Duplicate(s)?")
+            },
+            text = {
+                Text(
+                    "You are keeping '${group.primary.displayName}'. The remaining ${group.duplicates.size} redundant screenshot(s) will be deleted."
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.Button(
+                    onClick = {
+                        val toDelete = group.duplicates
+                        showTrashConfirmationGroup = null
+                        if (screenshotRepo != null) {
+                            scope.launch {
+                                screenshotRepo.deleteBatch(toDelete)
+                            }
+                        }
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Delete Duplicates")
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = { showTrashConfirmationGroup = null }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
+

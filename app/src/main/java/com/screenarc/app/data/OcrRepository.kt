@@ -18,4 +18,5 @@ interface OcrRepository {
     suspend fun recognizePendingScreenshots(language: OcrLanguage? = null): OcrBatchResult
     suspend fun processAndIndexAllImages(forceReindex: Boolean = false, language: OcrLanguage? = null): OcrBatchProgress
     suspend fun cancelPendingOcr()
+    fun closeRecognizers()
 }

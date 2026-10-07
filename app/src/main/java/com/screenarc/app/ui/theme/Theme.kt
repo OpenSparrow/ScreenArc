@@ -379,17 +379,35 @@ fun ScreenArcTheme(
                 if (darkTheme) DarkColorScheme else LightColorScheme
             }
         }
-        AppThemePreset.MATERIAL_LIGHT -> MaterialCleanLightColorScheme
-        AppThemePreset.PASTEL_CREAM -> PastelCreamColorScheme
-        AppThemePreset.NORD_SNOW -> NordFrostLightColorScheme
-        AppThemePreset.GLASS_FROST -> GlassFrostLightColorScheme
-        AppThemePreset.GLASS_AURORA -> GlassAuroraDarkColorScheme
-        AppThemePreset.MIDNIGHT_AMOLED -> MidnightAmoledColorScheme
-        AppThemePreset.CATPPUCCIN_MOCHA -> if (darkTheme) CatppuccinMochaColorScheme else CatppuccinLatteColorScheme
-        AppThemePreset.DRACULA -> DraculaColorScheme
-        AppThemePreset.NORD_FROST -> if (darkTheme) NordFrostDarkColorScheme else NordFrostLightColorScheme
-        AppThemePreset.SAKURA_BLOSSOM -> if (darkTheme) SakuraBlossomDarkColorScheme else SakuraBlossomLightColorScheme
-        AppThemePreset.CYBERPUNK_NEON -> CyberpunkNeonColorScheme
+        AppThemePreset.LIGHT -> MaterialCleanLightColorScheme
+        AppThemePreset.DARK -> DarkColorScheme
+        AppThemePreset.INDIGO -> darkColorScheme(
+            primary = Color(0xFF3F51B5),
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFF1A237E),
+            onPrimaryContainer = Color(0xFFC5CAE9),
+            secondary = Color(0xFF5C6BC0),
+            surface = Color(0xFF1A1C2E),
+            background = Color(0xFF121422)
+        )
+        AppThemePreset.TEAL -> darkColorScheme(
+            primary = Color(0xFF00796B),
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFF004D40),
+            onPrimaryContainer = Color(0xFFB2DFDB),
+            secondary = Color(0xFF26A69A),
+            surface = Color(0xFF121E1C),
+            background = Color(0xFF0D1615)
+        )
+        AppThemePreset.MONOCHROME -> darkColorScheme(
+            primary = Color(0xFFE0E0E0),
+            onPrimary = Color.Black,
+            primaryContainer = Color(0xFF424242),
+            onPrimaryContainer = Color.White,
+            secondary = Color(0xFF9E9E9E),
+            surface = Color(0xFF1E1E1E),
+            background = Color(0xFF121212)
+        )
     }
 
     // When glassmorphism is active, ensure surface & container layers are translucent with specular highlights

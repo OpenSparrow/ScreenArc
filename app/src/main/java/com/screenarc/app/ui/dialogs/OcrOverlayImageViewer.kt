@@ -83,6 +83,7 @@ import com.screenarc.app.model.OcrBlock
 import com.screenarc.app.model.ScreenshotUiModel
 import com.screenarc.app.ocr.OcrCoordinateTransformer
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun OcrOverlayImageViewer(
@@ -136,13 +137,25 @@ fun OcrOverlayImageViewer(
     var tappedBlockText by remember { mutableStateOf<String?>(null) }
     var lastTappedBlock by remember { mutableStateOf<OcrBlock?>(null) }
 
+    // Redaction and privacy tool state
+    var isRedactionActive by remember { mutableStateOf(false) }
+    var redactionMode by remember { mutableStateOf(com.screenarc.app.util.RedactionType.BLACKOUT) }
+    var redactedBlocks by remember { mutableStateOf<Map<OcrBlock, com.screenarc.app.util.RedactionType>>(emptyMap()) }
+    var freehandBrushActive by remember { mutableStateOf(false) }
+    var currentStrokePoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
+    var completedStrokes by remember { mutableStateOf<List<com.screenarc.app.util.FreehandPath>>(emptyList()) }
+    var isSavingRedacted by remember { mutableStateOf(false) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+
     val transformState = rememberTransformableState { zoomChange, offsetChange, _ ->
-        val newScale = (zoomScale * zoomChange).coerceIn(1f, 6f)
-        zoomScale = newScale
-        if (newScale > 1f) {
-            panOffset += offsetChange
-        } else {
-            panOffset = Offset.Zero
+        if (!freehandBrushActive) {
+            val newScale = (zoomScale * zoomChange).coerceIn(1f, 6f)
+            zoomScale = newScale
+            if (newScale > 1f) {
+                panOffset += offsetChange
+            } else {
+                panOffset = Offset.Zero
+            }
         }
     }
 
@@ -245,11 +258,21 @@ fun OcrOverlayImageViewer(
                                         fitParams = fitParams
                                     )
                                     if (hitBlock != null) {
-                                        lastTappedBlock = hitBlock
-                                        tappedBlockText = hitBlock.text
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        clipboard.setPrimaryClip(ClipData.newPlainText("Recognized Text", hitBlock.text))
-                                        Toast.makeText(context, "Copied!", Toast.LENGTH_SHORT).show()
+                                        if (isRedactionActive) {
+                                            // Toggle redaction on tapped block
+                                            val current = redactedBlocks[hitBlock]
+                                            redactedBlocks = if (current != null) {
+                                                redactedBlocks - hitBlock
+                                            } else {
+                                                redactedBlocks + (hitBlock to redactionMode)
+                                            }
+                                        } else {
+                                            lastTappedBlock = hitBlock
+                                            tappedBlockText = hitBlock.text
+                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                            clipboard.setPrimaryClip(ClipData.newPlainText("Recognized Text", hitBlock.text))
+                                            Toast.makeText(context, "Copied!", Toast.LENGTH_SHORT).show()
+                                        }
                                     }
                                 }
                             )
@@ -281,7 +304,36 @@ fun OcrOverlayImageViewer(
 
                                     val cornerRadius = 4.dp.toPx()
 
+                                    val isRedacted = redactedBlocks.containsKey(block)
+                                    val redactionType = redactedBlocks[block]
+
                                     when {
+                                        isRedacted -> {
+                                            if (redactionType == com.screenarc.app.util.RedactionType.BLACKOUT) {
+                                                // Solid blackout
+                                                drawRoundRect(
+                                                    color = Color.Black,
+                                                    topLeft = Offset(rect.left, rect.top),
+                                                    size = Size(rect.width, rect.height),
+                                                    cornerRadius = CornerRadius(cornerRadius)
+                                                )
+                                            } else {
+                                                // Pixelate pattern styling
+                                                drawRoundRect(
+                                                    color = Color(0xDD37474F),
+                                                    topLeft = Offset(rect.left, rect.top),
+                                                    size = Size(rect.width, rect.height),
+                                                    cornerRadius = CornerRadius(cornerRadius)
+                                                )
+                                                drawRoundRect(
+                                                    color = Color(0xFF90A4AE),
+                                                    topLeft = Offset(rect.left, rect.top),
+                                                    size = Size(rect.width, rect.height),
+                                                    cornerRadius = CornerRadius(cornerRadius),
+                                                    style = Stroke(width = 1.5.dp.toPx())
+                                                )
+                                            }
+                                        }
                                         isTapped -> {
                                             // Glow effect for tapped block
                                             drawRoundRect(
@@ -344,6 +396,42 @@ fun OcrOverlayImageViewer(
                                         }
                                     }
                                 }
+                            }
+
+                            // Freehand blur/blackout strokes
+                            completedStrokes.forEach { stroke ->
+                                if (stroke.points.size >= 2) {
+                                    val path = androidx.compose.ui.graphics.Path()
+                                    path.moveTo(stroke.points[0].x, stroke.points[0].y)
+                                    for (i in 1 until stroke.points.size) {
+                                        path.lineTo(stroke.points[i].x, stroke.points[i].y)
+                                    }
+                                    drawPath(
+                                        path = path,
+                                        color = Color.Black,
+                                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                            width = stroke.strokeWidth,
+                                            cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                                            join = androidx.compose.ui.graphics.StrokeJoin.Round
+                                        )
+                                    )
+                                }
+                            }
+                            if (currentStrokePoints.size >= 2) {
+                                val currentPath = androidx.compose.ui.graphics.Path()
+                                currentPath.moveTo(currentStrokePoints[0].x, currentStrokePoints[0].y)
+                                for (i in 1 until currentStrokePoints.size) {
+                                    currentPath.lineTo(currentStrokePoints[i].x, currentStrokePoints[i].y)
+                                }
+                                drawPath(
+                                    path = currentPath,
+                                    color = Color.Black,
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                        width = 36f,
+                                        cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                                        join = androidx.compose.ui.graphics.StrokeJoin.Round
+                                    )
+                                )
                             }
                         }
                     }
@@ -418,6 +506,28 @@ fun OcrOverlayImageViewer(
                                     )
                                 }
                             }
+                        }
+                    }
+
+                    // Privacy Redaction Mode Toggle
+                    Surface(
+                        shape = CircleShape,
+                        color = if (isRedactionActive) Color(0xFFE91E63).copy(alpha = 0.45f) else Color.White.copy(alpha = 0.12f),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (isRedactionActive) Color(0xFFFF4081) else Color.White.copy(alpha = 0.2f)
+                        ),
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                    ) {
+                        IconButton(onClick = { isRedactionActive = !isRedactionActive }) {
+                            Icon(
+                                imageVector = androidx.compose.material.icons.Icons.Default.ContentCopy,
+                                contentDescription = if (isRedactionActive) "Exit Redaction" else "Redact",
+                                tint = if (isRedactionActive) Color(0xFFFF4081) else Color.White.copy(alpha = 0.85f),
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
 
@@ -581,6 +691,110 @@ fun OcrOverlayImageViewer(
                         }
                     }
 
+                    // Redaction Tool Bar (Blackout / Pixelate / Save Redacted Copy & Share)
+                    AnimatedVisibility(
+                        visible = isRedactionActive,
+                        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(24.dp),
+                            color = Color(0xFF1E1E2E).copy(alpha = 0.95f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFF4081).copy(alpha = 0.4f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Privacy Redaction (${redactedBlocks.size} blocks)",
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = Color.White
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        androidx.compose.material3.FilterChip(
+                                            selected = redactionMode == com.screenarc.app.util.RedactionType.BLACKOUT,
+                                            onClick = { redactionMode = com.screenarc.app.util.RedactionType.BLACKOUT },
+                                            label = { Text("Blackout", fontSize = 11.sp) }
+                                        )
+                                        androidx.compose.material3.FilterChip(
+                                            selected = redactionMode == com.screenarc.app.util.RedactionType.PIXELATE,
+                                            onClick = { redactionMode = com.screenarc.app.util.RedactionType.PIXELATE },
+                                            label = { Text("Pixelate", fontSize = 11.sp) }
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    androidx.compose.material3.OutlinedButton(
+                                        onClick = {
+                                            redactedBlocks = emptyMap()
+                                            completedStrokes = emptyList()
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Text("Clear", color = Color.White)
+                                    }
+
+                                    androidx.compose.material3.Button(
+                                        onClick = {
+                                            if (redactedBlocks.isNotEmpty() || completedStrokes.isNotEmpty()) {
+                                                isSavingRedacted = true
+                                                scope.launch {
+                                                    val redactionItems = redactedBlocks.map { (blk, type) ->
+                                                        com.screenarc.app.util.RedactionItem(blk, type)
+                                                    }
+                                                    val newUri = com.screenarc.app.util.PrivacyRedactor.saveRedactedScreenshot(
+                                                        context = context,
+                                                        originalUri = screenshot.contentUri,
+                                                        redactions = redactionItems,
+                                                        freehandPaths = completedStrokes,
+                                                        imageWidth = rawImageWidth,
+                                                        imageHeight = rawImageHeight
+                                                    )
+                                                    isSavingRedacted = false
+                                                    if (newUri != null) {
+                                                        Toast.makeText(context, "Saved redacted copy!", Toast.LENGTH_SHORT).show()
+                                                        com.screenarc.app.util.PrivacyRedactor.shareRedactedImage(context, newUri)
+                                                    } else {
+                                                        Toast.makeText(context, "Failed to save redacted image", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            } else {
+                                                Toast.makeText(context, "Tap blocks to redact first", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        enabled = !isSavingRedacted,
+                                        modifier = Modifier.weight(1.5f),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFFE91E63)
+                                        )
+                                    ) {
+                                        if (isSavingRedacted) {
+                                            androidx.compose.material3.CircularProgressIndicator(
+                                                modifier = Modifier.size(16.dp),
+                                                color = Color.White,
+                                                strokeWidth = 2.dp
+                                            )
+                                        } else {
+                                            Text("Save & Share Copy")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Gesture hint pill
                     if (tappedBlockText == null && showBoxes && blocks.isNotEmpty()) {
                         Surface(
@@ -590,7 +804,7 @@ fun OcrOverlayImageViewer(
                             modifier = Modifier.align(Alignment.CenterHorizontally)
                         ) {
                             Text(
-                                text = "Tap a box to copy  •  Double-tap to zoom",
+                                text = if (isRedactionActive) "Tap blocks to redact/unredact" else "Tap a box to copy  •  Double-tap to zoom",
                                 color = Color.White.copy(alpha = 0.75f),
                                 fontSize = 12.sp,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)

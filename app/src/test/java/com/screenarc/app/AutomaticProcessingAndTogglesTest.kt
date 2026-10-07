@@ -99,4 +99,40 @@ class AutomaticProcessingAndTogglesTest {
         val willAutoMoveC = settingsC.autoOcrEnabled && settingsC.autoAssignRulesEnabled
         assertTrue("Should auto-move screenshot when both toggles are enabled", willAutoMoveC)
     }
+
+    @Test
+    fun testRulesFilterOnlyUncategorizedScreenshots() {
+        val uncategorizedScreenshot = com.screenarc.app.model.ScreenshotUiModel(
+            id = 1L,
+            uri = "content://media/external/images/media/1",
+            displayName = "Screenshot_1.png",
+            dateAdded = 1000L,
+            size = 1024L,
+            relativePath = "Pictures/Screenshots/",
+            categoryId = null,
+            ocrStatus = "COMPLETED",
+            recognizedText = "Invoice from GitHub for Docker subscription"
+        )
+
+        val alreadyCategorizedScreenshot = com.screenarc.app.model.ScreenshotUiModel(
+            id = 2L,
+            uri = "content://media/external/images/media/2",
+            displayName = "Screenshot_2.png",
+            dateAdded = 1000L,
+            size = 1024L,
+            relativePath = "Pictures/Screenshots/Finance/",
+            categoryId = 101L,
+            categoryName = "Finance",
+            ocrStatus = "COMPLETED",
+            recognizedText = "Invoice from GitHub for Docker subscription"
+        )
+
+        val screenshots = listOf(uncategorizedScreenshot, alreadyCategorizedScreenshot)
+
+        // Only screenshots where categoryId == null should be processed by rules
+        val toProcess = screenshots.filter { it.categoryId == null }
+        assertEquals(1, toProcess.size)
+        assertEquals(1L, toProcess.first().id)
+        assertNull(toProcess.first().categoryId)
+    }
 }

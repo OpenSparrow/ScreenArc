@@ -53,12 +53,14 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TextFields
+import kotlinx.coroutines.launch
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
@@ -129,6 +131,9 @@ fun ScreenshotsScreen(
     var showBulkMoveDialog by remember { mutableStateOf(false) }
     var showBulkCopyDialog by remember { mutableStateOf(false) }
     var showBulkDeleteDialog by remember { mutableStateOf(false) }
+    var isExportingPdf by remember { mutableStateOf(false) }
+    var pdfExportProgress by remember { mutableStateOf(0 to 0) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(
@@ -563,6 +568,45 @@ fun ScreenshotsScreen(
                             Icon(Icons.Default.DriveFileMove, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Move", fontSize = 12.sp)
+                        }
+
+                        // Export as PDF Button
+                        OutlinedButton(
+                            onClick = {
+                                val selectedItems = results.filter { uiState.selectedUris.contains(it.uri) }
+                                if (selectedItems.isNotEmpty()) {
+                                    isExportingPdf = true
+                                    scope.launch {
+                                        val pdfUri = com.screenarc.app.util.PdfExporter.exportScreenshotsToPdf(
+                                            context = context,
+                                            screenshots = selectedItems,
+                                            onProgress = { cur, tot ->
+                                                pdfExportProgress = cur to tot
+                                            }
+                                        )
+                                        isExportingPdf = false
+                                        if (pdfUri != null) {
+                                            android.widget.Toast.makeText(context, "PDF saved to Downloads", android.widget.Toast.LENGTH_LONG).show()
+                                            com.screenarc.app.util.PdfExporter.sharePdf(context, pdfUri)
+                                        } else {
+                                            android.widget.Toast.makeText(context, "Failed to create PDF", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = !isExportingPdf,
+                            shape = RoundedCornerShape(14.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            if (isExportingPdf) {
+                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("${pdfExportProgress.first}/${pdfExportProgress.second}", fontSize = 11.sp)
+                            } else {
+                                Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("PDF", fontSize = 12.sp)
+                            }
                         }
 
                         // Bulk Copy Button

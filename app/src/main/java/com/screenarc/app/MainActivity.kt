@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import com.screenarc.app.data.ScreenshotRepository
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -87,14 +88,31 @@ class MainActivity : ComponentActivity() {
     private lateinit var categoryRepository: CategoryRepository
     private lateinit var settingsRepository: AppSettingsRepository
     private lateinit var historyRepository: OrganizedHistoryRepository
-    private val searchViewModel: SearchViewModel by viewModels()
+    private lateinit var screenshotRepository: ScreenshotRepository
+    private val searchViewModel: SearchViewModel by viewModels {
+        SearchViewModel.provideFactory(application)
+    }
 
     private var selectedTabState = mutableStateOf(NavigationTab.HOME)
 
     private val permissionRequestLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        // Granted permissions handled
+        checkAndStartOverlayServiceIfEnabled()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        checkAndStartOverlayServiceIfEnabled()
+    }
+
+    private fun checkAndStartOverlayServiceIfEnabled() {
+        if (::settingsRepository.isInitialized &&
+            Settings.canDrawOverlays(this) &&
+            settingsRepository.settings.value.isServiceEnabled
+        ) {
+            OverlayService.startService(this)
+        }
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -102,12 +120,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        categoryRepository = CategoryRepository(this)
-        settingsRepository = AppSettingsRepository(this)
-        historyRepository = OrganizedHistoryRepository(this)
+        val container = (application as ScreenArcApplication).appContainer
+        categoryRepository = container.categoryRepository
+        settingsRepository = container.settingsRepository
+        historyRepository = container.historyRepository
+        screenshotRepository = container.screenshotRepository
 
         handleIncomingIntent(intent)
         requestRequiredPermissions()
+        checkAndStartOverlayServiceIfEnabled()
 
         setContent {
             val settings by settingsRepository.settings.collectAsState()
@@ -135,31 +156,7 @@ class MainActivity : ComponentActivity() {
                                         )
                                     )
                                 },
-                                actions = {
-                                    IconButton(
-                                        onClick = {
-                                            if (Settings.canDrawOverlays(this@MainActivity)) {
-                                                OverlayService.triggerDemo(
-                                                    this@MainActivity,
-                                                    "Quick Mockup Arc",
-                                                    0xFF6750A4.toInt()
-                                                )
-                                            } else {
-                                                val intent = Intent(
-                                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                                    Uri.parse("package:$packageName")
-                                                )
-                                                startActivity(intent)
-                                            }
-                                        }
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.PlayArrow,
-                                            contentDescription = "Test Overlay",
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                },
+                                actions = { },
                                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                                     containerColor = if (isGlass) {
                                         if (isDark) Color(0x35120E22) else Color(0x75FFFFFF)
@@ -222,6 +219,7 @@ class MainActivity : ComponentActivity() {
                                     categoryRepo = categoryRepository,
                                     settingsRepo = settingsRepository,
                                     historyRepo = historyRepository,
+                                    screenshotRepo = screenshotRepository,
                                     onNavigateToCategories = { selectedTab = NavigationTab.CATEGORIES },
                                     onNavigateToSearch = { selectedTab = NavigationTab.SEARCH }
                                 )

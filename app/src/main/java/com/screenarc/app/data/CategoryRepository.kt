@@ -88,6 +88,8 @@ class CategoryRepository(private val context: Context) {
     }
 
     suspend fun updateCategory(category: CategoryUiModel) = withContext(Dispatchers.IO) {
+        val oldCategory = categoryDao.getAllCategories().find { it.id == category.id }
+        val oldName = oldCategory?.name
         val entity = CategoryEntity(
             id = category.id,
             name = category.name.trim(),
@@ -98,6 +100,10 @@ class CategoryRepository(private val context: Context) {
             orderIndex = category.orderIndex
         )
         categoryDao.updateCategory(entity)
+        if (oldName != null && oldName != entity.name) {
+            database.ruleDao().updateCategoryNameForRules(category.id, entity.name)
+            database.organizedHistoryDao().updateCategoryName(oldName, entity.name)
+        }
         createCategoryDirectory(category.subfolderName)
         refreshOverlayCategories()
     }
