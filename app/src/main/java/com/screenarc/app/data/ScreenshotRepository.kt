@@ -14,6 +14,7 @@ import com.screenarc.app.model.ScreenshotSearchQuery
 import com.screenarc.app.model.ScreenshotUiModel
 import com.screenarc.app.service.OverlayEventBus
 import com.screenarc.app.storage.MediaStoreOrganizer
+import androidx.room.withTransaction
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -32,7 +33,21 @@ class ScreenshotRepository(
 
     init {
         scope.launch {
+            cleanOrphanedOcrRecords()
             syncMediaStoreScreenshots()
+        }
+    }
+
+    suspend fun cleanOrphanedOcrRecords(): Int = withContext(Dispatchers.IO) {
+        try {
+            val cleaned = database.ocrDao().deleteOrphanedOcr()
+            if (cleaned > 0) {
+                Log.d(TAG, "Cleaned up $cleaned orphaned OCR records")
+            }
+            cleaned
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cleaning orphaned OCR records: ${e.message}", e)
+            0
         }
     }
 
@@ -146,22 +161,29 @@ class ScreenshotRepository(
             mimeType = screenshot.mimeType
         )
 
+        val oldUri = screenshot.uri
         val result = MediaStoreOrganizer.moveToCategory(context, legacyItem, legacyCategory)
         result.onSuccess { newUri ->
-            // Update database record
+            val newUriStr = newUri.toString()
             val relativeSubfolder = "Pictures/Screenshots/${category.subfolderName}/"
-            screenshotDao.deleteScreenshotByUri(screenshot.uri)
-            val updatedEntity = ScreenshotEntity(
-                id = screenshot.id,
-                uri = newUri.toString(),
-                displayName = screenshot.displayName,
-                dateAdded = screenshot.dateAdded,
-                size = screenshot.size,
-                relativePath = relativeSubfolder,
-                mimeType = screenshot.mimeType,
-                categoryId = category.id
-            )
-            screenshotDao.insertOrUpdate(updatedEntity)
+
+            database.withTransaction {
+                // Atomically migrate OCR text to new URI
+                database.ocrDao().migrateScreenshotUri(oldUri, newUriStr)
+                screenshotDao.deleteScreenshotByUri(oldUri)
+                val updatedEntity = ScreenshotEntity(
+                    id = screenshot.id,
+                    uri = newUriStr,
+                    displayName = screenshot.displayName,
+                    dateAdded = screenshot.dateAdded,
+                    size = screenshot.size,
+                    relativePath = relativeSubfolder,
+                    mimeType = screenshot.mimeType,
+                    categoryId = category.id,
+                    ocrStatus = screenshot.ocrStatus
+                )
+                screenshotDao.insertOrUpdate(updatedEntity)
+            }
 
             // Add to history
             historyRepository.addRecord(
@@ -205,20 +227,26 @@ class ScreenshotRepository(
             relativePath = screenshot.relativePath,
             mimeType = screenshot.mimeType
         )
+        val oldUri = screenshot.uri
         val result = MediaStoreOrganizer.moveToCategory(context, legacyItem, rootCategory)
         result.onSuccess { newUri ->
-            screenshotDao.deleteScreenshotByUri(screenshot.uri)
-            val updatedEntity = ScreenshotEntity(
-                id = screenshot.id,
-                uri = newUri.toString(),
-                displayName = screenshot.displayName,
-                dateAdded = screenshot.dateAdded,
-                size = screenshot.size,
-                relativePath = "Pictures/Screenshots/",
-                mimeType = screenshot.mimeType,
-                categoryId = null
-            )
-            screenshotDao.insertOrUpdate(updatedEntity)
+            val newUriStr = newUri.toString()
+            database.withTransaction {
+                database.ocrDao().migrateScreenshotUri(oldUri, newUriStr)
+                screenshotDao.deleteScreenshotByUri(oldUri)
+                val updatedEntity = ScreenshotEntity(
+                    id = screenshot.id,
+                    uri = newUriStr,
+                    displayName = screenshot.displayName,
+                    dateAdded = screenshot.dateAdded,
+                    size = screenshot.size,
+                    relativePath = "Pictures/Screenshots/",
+                    mimeType = screenshot.mimeType,
+                    categoryId = null,
+                    ocrStatus = screenshot.ocrStatus
+                )
+                screenshotDao.insertOrUpdate(updatedEntity)
+            }
             OverlayEventBus.postEvent(OverlayEvent.RefreshRequested)
         }
         result
@@ -261,17 +289,32 @@ class ScreenshotRepository(
 
         val newUri = MediaStoreOrganizer.copyToNewFolderPublic(context, legacyItem, relativeSubfolder)
         if (newUri != null) {
-            val copyEntity = ScreenshotEntity(
-                id = System.currentTimeMillis(),
-                uri = newUri.toString(),
-                displayName = screenshot.displayName,
-                dateAdded = System.currentTimeMillis() / 1000,
-                size = screenshot.size,
-                relativePath = relativeSubfolder,
-                mimeType = screenshot.mimeType,
-                categoryId = category.id
-            )
-            screenshotDao.insertOrUpdate(copyEntity)
+            val newUriStr = newUri.toString()
+            database.withTransaction {
+                val copyEntity = ScreenshotEntity(
+                    id = System.currentTimeMillis(),
+                    uri = newUriStr,
+                    displayName = screenshot.displayName,
+                    dateAdded = System.currentTimeMillis() / 1000,
+                    size = screenshot.size,
+                    relativePath = relativeSubfolder,
+                    mimeType = screenshot.mimeType,
+                    categoryId = category.id,
+                    ocrStatus = screenshot.ocrStatus
+                )
+                screenshotDao.insertOrUpdate(copyEntity)
+
+                // Replicate OCR record to copied screenshot if available
+                val existingOcr = database.ocrDao().getOcrForUri(screenshot.uri)
+                if (existingOcr != null) {
+                    database.ocrDao().insertOrUpdate(
+                        existingOcr.copy(
+                            screenshotUri = newUriStr,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+                }
+            }
 
             historyRepository.addRecord(
                 OrganizedRecord(
