@@ -3,28 +3,50 @@ package com.screenarc.app.data
 import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
+import android.util.Log
+import com.screenarc.app.data.local.db.AppDatabase
+import com.screenarc.app.data.local.db.entity.OrganizedHistoryEntity
 import com.screenarc.app.model.OrganizedRecord
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
-import org.json.JSONObject
 
-class OrganizedHistoryRepository(context: Context) {
+class OrganizedHistoryRepository(
+    private val context: Context,
+    private val database: AppDatabase = AppDatabase.getInstance(context)
+) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val historyDao = database.organizedHistoryDao()
     private val prefs: SharedPreferences = context.getSharedPreferences("screenarc_history", Context.MODE_PRIVATE)
 
-    private val _history = MutableStateFlow<List<OrganizedRecord>>(emptyList())
-    val history: StateFlow<List<OrganizedRecord>> = _history.asStateFlow()
+    val history: StateFlow<List<OrganizedRecord>> = historyDao.getAllHistoryFlow()
+        .map { entities ->
+            entities.map { it.toDomainModel() }
+        }
+        .stateIn(
+            scope = scope,
+            started = SharingStarted.Eagerly,
+            initialValue = emptyList()
+        )
 
     init {
-        loadHistory()
+        scope.launch {
+            migrateLegacyHistoryIfPresent()
+        }
     }
 
-    private fun loadHistory() {
-        val jsonString = prefs.getString(KEY_HISTORY, null) ?: return
+    private suspend fun migrateLegacyHistoryIfPresent() = withContext(Dispatchers.IO) {
+        val jsonString = prefs.getString(KEY_HISTORY, null) ?: return@withContext
         try {
             val array = JSONArray(jsonString)
-            val list = mutableListOf<OrganizedRecord>()
+            val list = mutableListOf<OrganizedHistoryEntity>()
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
                 val ruleNameRaw = obj.optString("ruleName", "")
@@ -37,71 +59,61 @@ class OrganizedHistoryRepository(context: Context) {
                         keywordsList.add(kwArray.getString(k))
                     }
                 }
-                list.add(
-                    OrganizedRecord(
-                        id = obj.getString("id"),
-                        screenshotId = obj.getLong("screenshotId"),
-                        uri = Uri.parse(obj.getString("uri")),
-                        fileName = obj.getString("fileName"),
-                        categoryName = obj.getString("categoryName"),
-                        targetFolder = obj.getString("targetFolder"),
-                        timestamp = obj.getLong("timestamp"),
-                        success = obj.optBoolean("success", true),
-                        ruleName = if (ruleNameRaw.isNotBlank()) ruleNameRaw else null,
-                        triggerType = if (triggerTypeRaw.isNotBlank()) triggerTypeRaw else OrganizedRecord.TRIGGER_MANUAL,
-                        matchedKeywords = keywordsList,
-                        matchReason = if (matchReasonRaw.isNotBlank()) matchReasonRaw else null
-                    )
+                val domain = OrganizedRecord(
+                    id = obj.getString("id"),
+                    screenshotId = obj.getLong("screenshotId"),
+                    uri = Uri.parse(obj.getString("uri")),
+                    fileName = obj.getString("fileName"),
+                    categoryName = obj.getString("categoryName"),
+                    targetFolder = obj.getString("targetFolder"),
+                    timestamp = obj.getLong("timestamp"),
+                    success = obj.optBoolean("success", true),
+                    ruleName = if (ruleNameRaw.isNotBlank()) ruleNameRaw else null,
+                    triggerType = if (triggerTypeRaw.isNotBlank()) triggerTypeRaw else OrganizedRecord.TRIGGER_MANUAL,
+                    matchedKeywords = keywordsList,
+                    matchReason = if (matchReasonRaw.isNotBlank()) matchReasonRaw else null
                 )
+                list.add(OrganizedHistoryEntity.fromDomainModel(domain))
             }
-            _history.value = list.sortedByDescending { it.timestamp }
+            if (list.isNotEmpty()) {
+                historyDao.insertRecords(list)
+                Log.d(TAG, "Migrated ${list.size} history records from SharedPreferences to Room")
+            }
+            // Clear legacy key to avoid re-migration
+            prefs.edit().remove(KEY_HISTORY).apply()
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "Failed migrating legacy history: ${e.message}", e)
         }
-    }
-
-    private fun saveHistory(list: List<OrganizedRecord>) {
-        val array = JSONArray()
-        list.take(200).forEach { item ->
-            val obj = JSONObject().apply {
-                put("id", item.id)
-                put("screenshotId", item.screenshotId)
-                put("uri", item.uri.toString())
-                put("fileName", item.fileName)
-                put("categoryName", item.categoryName)
-                put("targetFolder", item.targetFolder)
-                put("timestamp", item.timestamp)
-                put("success", item.success)
-                put("ruleName", item.ruleName ?: "")
-                put("triggerType", item.triggerType)
-                val kwArray = JSONArray()
-                item.matchedKeywords.forEach { kwArray.put(it) }
-                put("matchedKeywords", kwArray)
-                put("matchReason", item.matchReason ?: "")
-            }
-            array.put(obj)
-        }
-        prefs.edit().putString(KEY_HISTORY, array.toString()).apply()
-        _history.value = list
     }
 
     fun addRecord(record: OrganizedRecord) {
-        val current = _history.value.toMutableList()
-        current.add(0, record)
-        saveHistory(current)
+        scope.launch(Dispatchers.IO) {
+            historyDao.insertRecord(OrganizedHistoryEntity.fromDomainModel(record))
+            // Prune old records cleanly in database beyond 1,000 entries
+            historyDao.pruneOldRecords(1000)
+        }
     }
 
     fun addRecords(records: List<OrganizedRecord>) {
-        val current = _history.value.toMutableList()
-        current.addAll(0, records)
-        saveHistory(current)
+        scope.launch(Dispatchers.IO) {
+            val entities = records.map { OrganizedHistoryEntity.fromDomainModel(it) }
+            historyDao.insertRecords(entities)
+            historyDao.pruneOldRecords(1000)
+        }
     }
 
     fun clearHistory() {
-        saveHistory(emptyList())
+        scope.launch(Dispatchers.IO) {
+            historyDao.deleteAllHistory()
+        }
+    }
+
+    suspend fun updateCategoryName(oldName: String, newName: String) = withContext(Dispatchers.IO) {
+        historyDao.updateCategoryName(oldName, newName)
     }
 
     companion object {
+        private const val TAG = "OrganizedHistoryRepo"
         private const val KEY_HISTORY = "history_records_json"
     }
 }

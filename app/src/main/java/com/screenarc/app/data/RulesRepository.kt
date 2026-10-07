@@ -3,17 +3,23 @@ package com.screenarc.app.data
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import com.screenarc.app.data.local.db.AppDatabase
 import com.screenarc.app.data.local.db.entity.OcrTextEntity
+import com.screenarc.app.data.local.db.entity.RuleEntity
 import com.screenarc.app.model.AutoCategorizationRule
 import com.screenarc.app.model.CategoryUiModel
 import com.screenarc.app.model.OrganizedRecord
 import com.screenarc.app.model.RuleMatchDetails
 import com.screenarc.app.model.ScreenshotUiModel
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -25,177 +31,198 @@ data class RuleExecutionResult(
     val message: String
 )
 
-class RulesRepository(private val context: Context) {
+class RulesRepository(
+    private val context: Context,
+    private val database: AppDatabase = AppDatabase.getInstance(context)
+) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val ruleDao = database.ruleDao()
     private val prefs: SharedPreferences = context.getSharedPreferences("screenarc_rules", Context.MODE_PRIVATE)
 
-    private val _rules = MutableStateFlow<List<AutoCategorizationRule>>(emptyList())
-    val rules: StateFlow<List<AutoCategorizationRule>> = _rules.asStateFlow()
+    val rules: StateFlow<List<AutoCategorizationRule>> = ruleDao.getAllRulesFlow()
+        .map { entities ->
+            entities.map { it.toDomainModel() }
+        }
+        .stateIn(
+            scope = scope,
+            started = SharingStarted.Eagerly,
+            initialValue = emptyList()
+        )
 
     init {
-        loadRules()
+        scope.launch {
+            initRules()
+        }
     }
 
-    private fun loadRules() {
-        val jsonString = prefs.getString(KEY_RULES, null)
-        if (jsonString.isNullOrBlank()) {
-            val defaults = createDefaultRules()
-            saveRules(defaults)
-            return
+    private suspend fun initRules() = withContext(Dispatchers.IO) {
+        val count = ruleDao.getRuleCount()
+        if (count == 0) {
+            // Check for legacy rules in SharedPreferences
+            val legacyJson = prefs.getString(KEY_RULES, null)
+            if (!legacyJson.isNullOrBlank()) {
+                try {
+                    val migrated = parseLegacyRulesJson(legacyJson)
+                    if (migrated.isNotEmpty()) {
+                        val entities = migrated.mapIndexed { idx, rule ->
+                            RuleEntity.fromDomainModel(rule.copy(priority = idx))
+                        }
+                        ruleDao.insertRules(entities)
+                        Log.d(TAG, "Migrated ${entities.size} rules from SharedPreferences to Room")
+                    } else {
+                        seedDefaultRules()
+                    }
+                    prefs.edit().remove(KEY_RULES).apply()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error migrating legacy rules: ${e.message}", e)
+                    seedDefaultRules()
+                }
+            } else {
+                seedDefaultRules()
+            }
         }
+    }
 
-        try {
-            val array = JSONArray(jsonString)
-            val list = mutableListOf<AutoCategorizationRule>()
-            for (i in 0 until array.length()) {
-                val obj = array.getJSONObject(i)
+    private suspend fun seedDefaultRules() {
+        val defaults = createDefaultRules()
+        val entities = defaults.mapIndexed { idx, rule ->
+            RuleEntity.fromDomainModel(rule.copy(priority = idx))
+        }
+        ruleDao.insertRules(entities)
+        Log.d(TAG, "Seeded ${entities.size} default rules in Room")
+    }
 
-                // Migration handling: If primaryKeywords exists, read it; otherwise migrate from legacy 'keywords'
-                val primaryKeywords = mutableListOf<String>()
-                if (obj.has("primaryKeywords")) {
-                    val pArray = obj.getJSONArray("primaryKeywords")
-                    for (j in 0 until pArray.length()) {
-                        primaryKeywords.add(pArray.getString(j))
-                    }
-                } else if (obj.has("keywords")) {
-                    val kArray = obj.getJSONArray("keywords")
-                    for (j in 0 until kArray.length()) {
-                        primaryKeywords.add(kArray.getString(j))
-                    }
+    private fun parseLegacyRulesJson(jsonString: String): List<AutoCategorizationRule> {
+        val array = JSONArray(jsonString)
+        val list = mutableListOf<AutoCategorizationRule>()
+        for (i in 0 until array.length()) {
+            val obj = array.getJSONObject(i)
+            val primaryKeywords = mutableListOf<String>()
+            if (obj.has("primaryKeywords")) {
+                val pArray = obj.getJSONArray("primaryKeywords")
+                for (j in 0 until pArray.length()) {
+                    primaryKeywords.add(pArray.getString(j))
                 }
-
-                val secondaryKeywords = mutableListOf<String>()
-                if (obj.has("secondaryKeywords")) {
-                    val sArray = obj.getJSONArray("secondaryKeywords")
-                    for (j in 0 until sArray.length()) {
-                        secondaryKeywords.add(sArray.getString(j))
-                    }
+            } else if (obj.has("keywords")) {
+                val kArray = obj.getJSONArray("keywords")
+                for (j in 0 until kArray.length()) {
+                    primaryKeywords.add(kArray.getString(j))
                 }
+            }
 
-                val priority = obj.optInt("priority", i)
-                val matchWholeWord = obj.optBoolean("matchWholeWord", false)
-                val isRegexEnabled = obj.optBoolean("isRegexEnabled", false)
-                val secondaryThreshold = obj.optInt("secondaryThreshold", 2)
+            val secondaryKeywords = mutableListOf<String>()
+            if (obj.has("secondaryKeywords")) {
+                val sArray = obj.getJSONArray("secondaryKeywords")
+                for (j in 0 until sArray.length()) {
+                    secondaryKeywords.add(sArray.getString(j))
+                }
+            }
 
-                list.add(
-                    AutoCategorizationRule(
-                        id = obj.getString("id"),
-                        name = obj.getString("name"),
-                        primaryKeywords = primaryKeywords,
-                        secondaryKeywords = secondaryKeywords,
-                        targetCategoryId = obj.getLong("targetCategoryId"),
-                        targetCategoryName = obj.getString("targetCategoryName"),
-                        priority = priority,
-                        isEnabled = obj.optBoolean("isEnabled", true),
-                        onlyNewScreenshots = obj.optBoolean("onlyNewScreenshots", true),
-                        matchWholeWord = matchWholeWord,
-                        isRegexEnabled = isRegexEnabled,
-                        secondaryThreshold = secondaryThreshold,
-                        matchCount = obj.optInt("matchCount", 0),
-                        lastRunTimestamp = if (obj.has("lastRunTimestamp")) obj.getLong("lastRunTimestamp") else null
-                    )
+            val priority = obj.optInt("priority", i)
+            val matchWholeWord = obj.optBoolean("matchWholeWord", false)
+            val isRegexEnabled = obj.optBoolean("isRegexEnabled", false)
+            val secondaryThreshold = obj.optInt("secondaryThreshold", 2)
+
+            list.add(
+                AutoCategorizationRule(
+                    id = obj.getString("id"),
+                    name = obj.getString("name"),
+                    primaryKeywords = primaryKeywords,
+                    secondaryKeywords = secondaryKeywords,
+                    targetCategoryId = obj.getLong("targetCategoryId"),
+                    targetCategoryName = obj.getString("targetCategoryName"),
+                    priority = priority,
+                    isEnabled = obj.optBoolean("isEnabled", true),
+                    onlyNewScreenshots = obj.optBoolean("onlyNewScreenshots", true),
+                    matchWholeWord = matchWholeWord,
+                    isRegexEnabled = isRegexEnabled,
+                    secondaryThreshold = secondaryThreshold,
+                    matchCount = obj.optInt("matchCount", 0),
+                    lastRunTimestamp = if (obj.has("lastRunTimestamp")) obj.getLong("lastRunTimestamp") else null
                 )
-            }
-            _rules.value = list.sortedBy { it.priority }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error loading rules: ${e.message}", e)
-            val defaults = createDefaultRules()
-            saveRules(defaults)
+            )
         }
-    }
-
-    private fun saveRules(list: List<AutoCategorizationRule>) {
-        val sortedList = list.sortedBy { it.priority }.mapIndexed { index, rule ->
-            rule.copy(priority = index)
-        }
-        val array = JSONArray()
-        sortedList.forEach { rule ->
-            val obj = JSONObject().apply {
-                put("id", rule.id)
-                put("name", rule.name)
-
-                val pArray = JSONArray()
-                rule.primaryKeywords.forEach { pArray.put(it) }
-                put("primaryKeywords", pArray)
-
-                val sArray = JSONArray()
-                rule.secondaryKeywords.forEach { sArray.put(it) }
-                put("secondaryKeywords", sArray)
-
-                // Backward compatibility mirror
-                val kwArray = JSONArray()
-                rule.keywords.forEach { kwArray.put(it) }
-                put("keywords", kwArray)
-
-                put("targetCategoryId", rule.targetCategoryId)
-                put("targetCategoryName", rule.targetCategoryName)
-                put("priority", rule.priority)
-                put("isEnabled", rule.isEnabled)
-                put("onlyNewScreenshots", rule.onlyNewScreenshots)
-                put("matchWholeWord", rule.matchWholeWord)
-                put("isRegexEnabled", rule.isRegexEnabled)
-                put("secondaryThreshold", rule.secondaryThreshold)
-                put("matchCount", rule.matchCount)
-                if (rule.lastRunTimestamp != null) {
-                    put("lastRunTimestamp", rule.lastRunTimestamp)
-                }
-            }
-            array.put(obj)
-        }
-        prefs.edit().putString(KEY_RULES, array.toString()).apply()
-        _rules.value = sortedList
+        return list
     }
 
     fun saveRule(rule: AutoCategorizationRule) {
-        val current = _rules.value.toMutableList()
-        val index = current.indexOfFirst { it.id == rule.id }
-        if (index >= 0) {
-            current[index] = rule
-        } else {
-            val nextPriority = current.size
-            current.add(rule.copy(priority = if (rule.priority == 0 && current.isNotEmpty()) nextPriority else rule.priority))
+        scope.launch(Dispatchers.IO) {
+            val currentList = ruleDao.getAllRules()
+            val existingIndex = currentList.indexOfFirst { it.id == rule.id }
+            val priority = if (existingIndex >= 0) {
+                currentList[existingIndex].priority
+            } else {
+                currentList.size
+            }
+            ruleDao.insertRule(RuleEntity.fromDomainModel(rule.copy(priority = priority)))
         }
-        saveRules(current)
     }
 
     fun deleteRule(ruleId: String) {
-        val current = _rules.value.filterNot { it.id == ruleId }
-        saveRules(current)
+        scope.launch(Dispatchers.IO) {
+            ruleDao.deleteRuleById(ruleId)
+            normalizePriorities()
+        }
     }
 
     fun toggleRule(ruleId: String, isEnabled: Boolean) {
-        val current = _rules.value.map {
-            if (it.id == ruleId) it.copy(isEnabled = isEnabled) else it
+        scope.launch(Dispatchers.IO) {
+            val existing = ruleDao.getRuleById(ruleId) ?: return@launch
+            ruleDao.updateRule(existing.copy(isEnabled = isEnabled, updatedAt = System.currentTimeMillis()))
         }
-        saveRules(current)
     }
 
     fun moveRulePriority(ruleId: String, moveUp: Boolean) {
-        val list = _rules.value.toMutableList()
-        val index = list.indexOfFirst { it.id == ruleId }
-        if (index == -1) return
-        val targetIndex = if (moveUp) index - 1 else index + 1
-        if (targetIndex in 0 until list.size) {
-            val item = list.removeAt(index)
-            list.add(targetIndex, item)
-            saveRules(list)
+        scope.launch(Dispatchers.IO) {
+            val list = ruleDao.getAllRules().toMutableList()
+            val index = list.indexOfFirst { it.id == ruleId }
+            if (index == -1) return@launch
+            val targetIndex = if (moveUp) index - 1 else index + 1
+            if (targetIndex in 0 until list.size) {
+                val item = list.removeAt(index)
+                list.add(targetIndex, item)
+                val reindexed = list.mapIndexed { idx, entity -> entity.copy(priority = idx) }
+                ruleDao.insertRules(reindexed)
+            }
         }
     }
 
     fun reorderRules(reorderedRules: List<AutoCategorizationRule>) {
-        saveRules(reorderedRules)
+        scope.launch(Dispatchers.IO) {
+            val entities = reorderedRules.mapIndexed { idx, rule ->
+                RuleEntity.fromDomainModel(rule.copy(priority = idx))
+            }
+            ruleDao.insertRules(entities)
+        }
     }
 
     fun importRules(importedRules: List<AutoCategorizationRule>, replace: Boolean = false) {
-        val current = if (replace) mutableListOf() else _rules.value.toMutableList()
-        for (rule in importedRules) {
-            val index = current.indexOfFirst { it.name.equals(rule.name, ignoreCase = true) || it.id == rule.id }
-            if (index >= 0) {
-                current[index] = rule
-            } else {
-                current.add(rule.copy(priority = current.size))
+        scope.launch(Dispatchers.IO) {
+            if (replace) {
+                ruleDao.deleteAllRules()
             }
+            val existing = ruleDao.getAllRules().toMutableList()
+            for (rule in importedRules) {
+                val matchIdx = existing.indexOfFirst { it.name.equals(rule.name, ignoreCase = true) || it.id == rule.id }
+                if (matchIdx >= 0) {
+                    existing[matchIdx] = RuleEntity.fromDomainModel(rule.copy(priority = matchIdx))
+                } else {
+                    existing.add(RuleEntity.fromDomainModel(rule.copy(priority = existing.size)))
+                }
+            }
+            val reindexed = existing.mapIndexed { idx, entity -> entity.copy(priority = idx) }
+            ruleDao.insertRules(reindexed)
         }
-        saveRules(current)
+    }
+
+    suspend fun updateCategoryNameForRules(categoryId: Long, newName: String) = withContext(Dispatchers.IO) {
+        ruleDao.updateCategoryNameForRules(categoryId, newName)
+    }
+
+    private suspend fun normalizePriorities() {
+        val list = ruleDao.getAllRules()
+        val reindexed = list.mapIndexed { idx, entity -> entity.copy(priority = idx) }
+        ruleDao.insertRules(reindexed)
     }
 
     /**
@@ -207,8 +234,9 @@ class RulesRepository(private val context: Context) {
         categoryRepository: CategoryRepository,
         ocrRepository: OcrRepository
     ): RuleExecutionResult = withContext(Dispatchers.IO) {
-        val rule = _rules.value.find { it.id == ruleId }
+        val entity = ruleDao.getRuleById(ruleId)
             ?: return@withContext RuleExecutionResult(0, 0, 0, "Rule not found")
+        val rule = entity.toDomainModel()
 
         screenshotRepository.syncMediaStoreScreenshots()
 
@@ -263,7 +291,7 @@ class RulesRepository(private val context: Context) {
             lastRunTimestamp = System.currentTimeMillis(),
             matchCount = rule.matchCount + movedCount
         )
-        saveRule(updatedRule)
+        ruleDao.insertRule(RuleEntity.fromDomainModel(updatedRule))
 
         RuleExecutionResult(
             executedRulesCount = 1,
@@ -281,7 +309,11 @@ class RulesRepository(private val context: Context) {
         categoryRepository: CategoryRepository,
         ocrRepository: OcrRepository
     ): RuleExecutionResult = withContext(Dispatchers.IO) {
-        val activeRules = _rules.value.filter { it.isEnabled }.sortedBy { it.priority }
+        val activeRules = ruleDao.getAllRules()
+            .map { it.toDomainModel() }
+            .filter { it.isEnabled }
+            .sortedBy { it.priority }
+
         if (activeRules.isEmpty()) {
             return@withContext RuleExecutionResult(0, 0, 0, "No active rules found to run")
         }
@@ -334,19 +366,20 @@ class RulesRepository(private val context: Context) {
             }
         }
 
-        // Update lastRunTimestamp and stats
-        val updatedRules = _rules.value.map { r ->
-            val additional = ruleMatchCounts[r.id] ?: 0
-            if (r.isEnabled) {
-                r.copy(
+        // Update lastRunTimestamp and stats in database
+        val updatedEntities = ruleDao.getAllRules().map { entity ->
+            val additional = ruleMatchCounts[entity.id] ?: 0
+            if (entity.isEnabled) {
+                entity.copy(
                     lastRunTimestamp = System.currentTimeMillis(),
-                    matchCount = r.matchCount + additional
+                    matchCount = entity.matchCount + additional,
+                    updatedAt = System.currentTimeMillis()
                 )
             } else {
-                r
+                entity
             }
         }
-        saveRules(updatedRules)
+        ruleDao.insertRules(updatedEntities)
 
         RuleExecutionResult(
             executedRulesCount = activeRules.size,
