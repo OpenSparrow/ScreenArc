@@ -100,6 +100,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # Required to create tags and publish GitHub Releases
+      pull-requests: read # Required by mikepenz/release-changelog-builder-action to query PRs
 
     steps:
       - name: Checkout Repository
@@ -116,7 +117,9 @@ jobs:
       - name: Generate Release Changelog
         id: changelog
         uses: mikepenz/release-changelog-builder-action@v4
+        continue-on-error: true
         with:
+          failOnError: false
           configurationJson: |
             {
               "categories": [
