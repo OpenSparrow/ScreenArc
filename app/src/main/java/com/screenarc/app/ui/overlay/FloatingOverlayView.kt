@@ -118,6 +118,7 @@ fun FloatingOverlayView(
     onDismiss: () -> Unit,
     onOpenSearch: () -> Unit,
     onStyleChanged: ((ArcDesignStyle) -> Unit)? = null,
+    entities: List<com.screenarc.app.model.SmartEntity> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -693,6 +694,16 @@ fun FloatingOverlayView(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // Detected Smart Entities & Action Chips row
+                    if (entities.isNotEmpty() && isExpanded && !isDragging && successCategory == null && !isDeleting) {
+                        com.screenarc.app.ui.components.SmartEntityChipsRow(
+                            entities = entities,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                        )
+                    }
+
                     // Interactive Arc Design Switcher Pill (Orbit ✦ | Fan ⌓ | Dial 🝯)
                     if (isExpanded && !isDragging && successCategory == null && !isDeleting) {
                         Surface(

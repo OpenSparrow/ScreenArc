@@ -87,6 +87,9 @@ fun OcrResultDialog(
     val blocksCount = ocrResult?.blocks?.size ?: 0
 
     // Smart Entity Extraction
+    val smartEntities = remember(rawText) {
+        if (hasText) com.screenarc.app.util.EntityParser.parseText(rawText, context) else emptyList()
+    }
     val extractedEntities = remember(rawText) {
         if (hasText) com.screenarc.app.util.SmartEntityExtractor.extractEntities(rawText) else emptyList()
     }
@@ -256,57 +259,11 @@ fun OcrResultDialog(
                 }
 
                 // Smart Entity Action Chips
-                if (extractedEntities.isNotEmpty()) {
-                    androidx.compose.foundation.lazy.LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                if (smartEntities.isNotEmpty()) {
+                    com.screenarc.app.ui.components.SmartEntityChipsRow(
+                        entities = smartEntities,
                         modifier = Modifier.fillMaxWidth()
-                    ) {
-                        items(extractedEntities.size) { idx ->
-                            val entity = extractedEntities[idx]
-                            androidx.compose.material3.AssistChip(
-                                onClick = {
-                                    when (entity.type) {
-                                        com.screenarc.app.util.EntityType.URL -> {
-                                            try {
-                                                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(entity.value))
-                                                context.startActivity(intent)
-                                            } catch (e: Exception) {
-                                                Toast.makeText(context, "Could not open link", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                        com.screenarc.app.util.EntityType.UPI -> {
-                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                            clipboard.setPrimaryClip(ClipData.newPlainText("UPI ID", entity.value))
-                                            Toast.makeText(context, "UPI ID copied: ${entity.value}", Toast.LENGTH_SHORT).show()
-                                        }
-                                        com.screenarc.app.util.EntityType.OTP -> {
-                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                            clipboard.setPrimaryClip(ClipData.newPlainText("OTP Code", entity.value))
-                                            Toast.makeText(context, "OTP Code copied: ${entity.value}", Toast.LENGTH_SHORT).show()
-                                        }
-                                        com.screenarc.app.util.EntityType.PHONE -> {
-                                            try {
-                                                val intent = Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:${entity.value}"))
-                                                context.startActivity(intent)
-                                            } catch (e: Exception) {
-                                                Toast.makeText(context, "Could not launch dialer", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                        com.screenarc.app.util.EntityType.EMAIL -> {
-                                            try {
-                                                val intent = Intent(Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:${entity.value}"))
-                                                context.startActivity(intent)
-                                            } catch (e: Exception) {
-                                                Toast.makeText(context, "Could not launch email", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    }
-                                },
-                                label = { Text(entity.label, style = MaterialTheme.typography.labelSmall) },
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                        }
-                    }
+                    )
                     Spacer(modifier = Modifier.height(10.dp))
                 }
 

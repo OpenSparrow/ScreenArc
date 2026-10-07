@@ -205,9 +205,14 @@ class OverlayService : Service() {
 
         if (settings.autoOcrEnabled || activeRules.isNotEmpty()) {
             serviceScope.launch {
+                var detectedEntities = emptyList<com.screenarc.app.model.SmartEntity>()
                 try {
                     val ocrResult = ocrRepository.recognizeText(screenshot.uri, settings.ocrLanguage)
                     if (ocrResult.success && ocrResult.recognizedText.isNotBlank()) {
+                        detectedEntities = com.screenarc.app.util.EntityParser.parseText(
+                            ocrResult.recognizedText,
+                            this@OverlayService
+                        )
                         val winningMatch = com.screenarc.app.model.AutoCategorizationRule.resolveBestMatch(activeRules, ocrResult.recognizedText)
                         if (winningMatch != null && winningMatch.isAssigned) {
                             val categories = categoryRepository.categories.value
@@ -226,7 +231,7 @@ class OverlayService : Service() {
                                     return@launch
                                 } else {
                                     // Highlight & prioritize suggested category on radial overlay
-                                    showFloatingOverlay(screenshot, suggestedCategoryId = targetCat.id)
+                                    showFloatingOverlay(screenshot, suggestedCategoryId = targetCat.id, entities = detectedEntities)
                                     return@launch
                                 }
                             }
@@ -235,7 +240,7 @@ class OverlayService : Service() {
                 } catch (e: Exception) {
                     Log.e(TAG, "Background auto-processing error: ${e.message}", e)
                 }
-                showFloatingOverlay(screenshot)
+                showFloatingOverlay(screenshot, entities = detectedEntities)
             }
         } else {
             showFloatingOverlay(screenshot)
@@ -277,10 +282,14 @@ class OverlayService : Service() {
         notificationManager.notify((FALLBACK_NOTIFICATION_ID + (screenshot.id % 1000)).toInt(), notification)
     }
 
-    fun showFloatingOverlay(screenshot: ScreenshotItem, suggestedCategoryId: Long? = null) {
+    fun showFloatingOverlay(
+        screenshot: ScreenshotItem,
+        suggestedCategoryId: Long? = null,
+        entities: List<com.screenarc.app.model.SmartEntity> = emptyList()
+    ) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             Handler(Looper.getMainLooper()).post {
-                showFloatingOverlay(screenshot, suggestedCategoryId)
+                showFloatingOverlay(screenshot, suggestedCategoryId, entities)
             }
             return
         }
@@ -359,6 +368,7 @@ class OverlayService : Service() {
                         settings = settings,
                         suggestedCategoryId = suggestedCategoryId,
                         categoryUsageMap = usageMap,
+                        entities = entities,
                         onMoveToCategory = { category ->
                             handleMoveToCategory(screenshot, category)
                         },
