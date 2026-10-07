@@ -245,6 +245,44 @@ fun DiagnosticsSection(
                         }
                     )
 
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // 4. Auto-Archive / Auto-Trash Policy
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text(
+                                text = "Auto-Clean Uncategorized Screenshots",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Automatically move uncategorized screenshots older than chosen threshold to trash. Categorized screenshots are NEVER touched.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(0 to "Off", 30 to "30 days", 60 to "60 days", 90 to "90 days").forEach { (days, label) ->
+                                    val isSelected = settings.autoArchiveDays == days
+                                    androidx.compose.material3.FilterChip(
+                                        selected = isSelected,
+                                        onClick = {
+                                            onUpdateSettings { it.copy(autoArchiveDays = days) }
+                                        },
+                                        label = { Text(label, fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     if (com.screenarc.app.BuildConfig.DEBUG) {
                         Spacer(modifier = Modifier.height(16.dp))
 

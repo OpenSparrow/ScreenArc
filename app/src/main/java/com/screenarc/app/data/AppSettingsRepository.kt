@@ -26,6 +26,7 @@ data class AppSettings(
     val arcDesignStyle: com.screenarc.app.model.ArcDesignStyle = com.screenarc.app.model.ArcDesignStyle.ORBIT,
     val autoOcrEnabled: Boolean = false,
     val autoAssignRulesEnabled: Boolean = false,
+    val autoArchiveDays: Int = 0, // 0 = Off, 30, 60, 90 days
     val themePreset: AppThemePreset = AppThemePreset.DYNAMIC_SYSTEM,
     val uiDesignStyle: UiDesignStyle = UiDesignStyle.MATERIAL
 )
@@ -85,6 +86,7 @@ class AppSettingsRepository(context: Context) {
             arcDesignStyle = arcStyle,
             autoOcrEnabled = autoOcr,
             autoAssignRulesEnabled = if (autoOcr) autoRules else false,
+            autoArchiveDays = prefs.getInt("auto_archive_days", 0),
             themePreset = themePreset,
             uiDesignStyle = uiStyle
         )
@@ -112,6 +114,7 @@ class AppSettingsRepository(context: Context) {
             putString("arc_design_style", finalUpdated.arcDesignStyle.name)
             putBoolean("auto_ocr_enabled", finalUpdated.autoOcrEnabled)
             putBoolean("auto_assign_rules_enabled", finalUpdated.autoAssignRulesEnabled)
+            putInt("auto_archive_days", finalUpdated.autoArchiveDays)
             putString("theme_preset", finalUpdated.themePreset.id)
             putString("ui_design_style", finalUpdated.uiDesignStyle.name)
         }.apply()
