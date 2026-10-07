@@ -3,7 +3,6 @@ package com.screenarc.app.data
 import android.content.Context
 import android.content.SharedPreferences
 import com.screenarc.app.model.AppThemePreset
-import com.screenarc.app.model.ThemeCategory
 import com.screenarc.app.ocr.OcrLanguage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,8 +27,7 @@ data class AppSettings(
     val autoOcrEnabled: Boolean = false,
     val autoAssignRulesEnabled: Boolean = false,
     val themePreset: AppThemePreset = AppThemePreset.DYNAMIC_SYSTEM,
-    val uiDesignStyle: UiDesignStyle = UiDesignStyle.MATERIAL,
-    val selectedThemeCategory: ThemeCategory = ThemeCategory.ALL
+    val uiDesignStyle: UiDesignStyle = UiDesignStyle.MATERIAL
 )
 
 class AppSettingsRepository(context: Context) {
@@ -72,9 +70,6 @@ class AppSettingsRepository(context: Context) {
             UiDesignStyle.MATERIAL
         }
 
-        val themeCategoryName = prefs.getString("selected_theme_category", ThemeCategory.ALL.name)
-        val themeCategory = ThemeCategory.fromName(themeCategoryName, ThemeCategory.ALL)
-
         val autoRules = prefs.getBoolean("auto_assign_rules_enabled", false)
 
         return AppSettings(
@@ -91,8 +86,7 @@ class AppSettingsRepository(context: Context) {
             autoOcrEnabled = autoOcr,
             autoAssignRulesEnabled = if (autoOcr) autoRules else false,
             themePreset = themePreset,
-            uiDesignStyle = uiStyle,
-            selectedThemeCategory = themeCategory
+            uiDesignStyle = uiStyle
         )
     }
 
@@ -120,19 +114,8 @@ class AppSettingsRepository(context: Context) {
             putBoolean("auto_assign_rules_enabled", finalUpdated.autoAssignRulesEnabled)
             putString("theme_preset", finalUpdated.themePreset.id)
             putString("ui_design_style", finalUpdated.uiDesignStyle.name)
-            putString("selected_theme_category", finalUpdated.selectedThemeCategory.name)
         }.apply()
         _settings.value = finalUpdated
-    }
-
-    fun getSelectedThemeCategory(): ThemeCategory {
-        val name = prefs.getString("selected_theme_category", ThemeCategory.ALL.name)
-        return ThemeCategory.fromName(name, ThemeCategory.ALL)
-    }
-
-    fun setSelectedThemeCategory(category: ThemeCategory) {
-        prefs.edit().putString("selected_theme_category", category.name).apply()
-        _settings.value = _settings.value.copy(selectedThemeCategory = category)
     }
 
     /**
