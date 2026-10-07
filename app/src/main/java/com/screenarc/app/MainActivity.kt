@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import com.screenarc.app.data.ScreenshotRepository
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -87,6 +88,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var categoryRepository: CategoryRepository
     private lateinit var settingsRepository: AppSettingsRepository
     private lateinit var historyRepository: OrganizedHistoryRepository
+    private lateinit var screenshotRepository: ScreenshotRepository
     private val searchViewModel: SearchViewModel by viewModels {
         SearchViewModel.provideFactory(application)
     }
@@ -108,6 +110,7 @@ class MainActivity : ComponentActivity() {
         categoryRepository = container.categoryRepository
         settingsRepository = container.settingsRepository
         historyRepository = container.historyRepository
+        screenshotRepository = container.screenshotRepository
 
         handleIncomingIntent(intent)
         requestRequiredPermissions()
@@ -201,6 +204,7 @@ class MainActivity : ComponentActivity() {
                                     categoryRepo = categoryRepository,
                                     settingsRepo = settingsRepository,
                                     historyRepo = historyRepository,
+                                    screenshotRepo = screenshotRepository,
                                     onNavigateToCategories = { selectedTab = NavigationTab.CATEGORIES },
                                     onNavigateToSearch = { selectedTab = NavigationTab.SEARCH }
                                 )
