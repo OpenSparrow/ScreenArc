@@ -138,31 +138,7 @@ class MainActivity : ComponentActivity() {
                                         )
                                     )
                                 },
-                                actions = {
-                                    IconButton(
-                                        onClick = {
-                                            if (Settings.canDrawOverlays(this@MainActivity)) {
-                                                OverlayService.triggerDemo(
-                                                    this@MainActivity,
-                                                    "Quick Mockup Arc",
-                                                    0xFF6750A4.toInt()
-                                                )
-                                            } else {
-                                                val intent = Intent(
-                                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                                    Uri.parse("package:$packageName")
-                                                )
-                                                startActivity(intent)
-                                            }
-                                        }
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.PlayArrow,
-                                            contentDescription = "Test Overlay",
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                },
+                                actions = { },
                                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                                     containerColor = if (isGlass) {
                                         if (isDark) Color(0x35120E22) else Color(0x75FFFFFF)

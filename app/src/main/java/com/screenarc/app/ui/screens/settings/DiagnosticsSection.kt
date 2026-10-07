@@ -245,28 +245,46 @@ fun DiagnosticsSection(
                         }
                     )
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    if (com.screenarc.app.BuildConfig.DEBUG) {
+                        Spacer(modifier = Modifier.height(16.dp))
 
-                    // Quick Test / Demo Trigger Button
-                    OutlinedButton(
-                        onClick = {
-                            val demoIntent = Intent(context, OverlayService::class.java).apply {
-                                action = OverlayService.ACTION_TRIGGER_DEMO
-                                putExtra(OverlayService.EXTRA_DEMO_LABEL, "Live Test Screenshot")
-                                putExtra(OverlayService.EXTRA_DEMO_COLOR, 0xFF6750A4.toInt())
-                            }
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                context.startForegroundService(demoIntent)
-                            } else {
-                                context.startService(demoIntent)
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Trigger Simulated Screenshot (Test Overlay)")
+                        Text(
+                            text = "Developer Options",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            text = "⚠️ Warning: Simulating a screenshot will create a test image record and trigger the radial overlay for UI testing.",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            color = MaterialTheme.colorScheme.error
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Quick Test / Demo Trigger Button (Debug Only)
+                        OutlinedButton(
+                            onClick = {
+                                val demoIntent = Intent(context, OverlayService::class.java).apply {
+                                    action = OverlayService.ACTION_TRIGGER_DEMO
+                                    putExtra(OverlayService.EXTRA_DEMO_LABEL, "Live Test Screenshot")
+                                    putExtra(OverlayService.EXTRA_DEMO_COLOR, 0xFF6750A4.toInt())
+                                }
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                    context.startForegroundService(demoIntent)
+                                } else {
+                                    context.startService(demoIntent)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Simulate Screenshot (Developer Test)")
+                        }
                     }
                 }
             }
