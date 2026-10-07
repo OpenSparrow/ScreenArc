@@ -2,6 +2,7 @@ package com.screenarc.app.viewmodel
 
 import android.app.Application
 import android.net.Uri
+import com.screenarc.app.ScreenArcApplication
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.screenarc.app.data.CategoryRepository
@@ -434,5 +435,26 @@ class SearchViewModel @JvmOverloads constructor(
         viewModelScope.launch {
             screenshotRepository.syncMediaStoreScreenshots()
         }
+    }
+
+    companion object {
+        fun provideFactory(application: Application): androidx.lifecycle.ViewModelProvider.Factory =
+            object : androidx.lifecycle.ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                    val container = (application as? ScreenArcApplication)?.appContainer
+                    return if (container != null) {
+                        SearchViewModel(
+                            application = application,
+                            screenshotRepository = container.screenshotRepository,
+                            categoryRepository = container.categoryRepository,
+                            ocrRepository = container.ocrRepository,
+                            rulesRepository = container.rulesRepository
+                        ) as T
+                    } else {
+                        SearchViewModel(application) as T
+                    }
+                }
+            }
     }
 }

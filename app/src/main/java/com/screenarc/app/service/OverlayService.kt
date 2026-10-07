@@ -75,12 +75,13 @@ class OverlayService : Service() {
         Log.d(TAG, "OverlayService onCreate")
 
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        categoryRepository = CategoryRepository(this)
-        settingsRepository = AppSettingsRepository(this)
-        historyRepository = OrganizedHistoryRepository(this)
-        screenshotRepository = ScreenshotRepository(this)
-        ocrRepository = com.screenarc.app.data.OcrRepositoryImpl(this)
-        rulesRepository = com.screenarc.app.data.RulesRepository(this)
+        val container = (application as com.screenarc.app.ScreenArcApplication).appContainer
+        categoryRepository = container.categoryRepository
+        settingsRepository = container.settingsRepository
+        historyRepository = container.historyRepository
+        screenshotRepository = container.screenshotRepository
+        ocrRepository = container.ocrRepository
+        rulesRepository = container.rulesRepository
 
         overlayLifecycleOwner.performRestore(null)
         overlayLifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)

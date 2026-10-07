@@ -87,7 +87,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var categoryRepository: CategoryRepository
     private lateinit var settingsRepository: AppSettingsRepository
     private lateinit var historyRepository: OrganizedHistoryRepository
-    private val searchViewModel: SearchViewModel by viewModels()
+    private val searchViewModel: SearchViewModel by viewModels {
+        SearchViewModel.provideFactory(application)
+    }
 
     private var selectedTabState = mutableStateOf(NavigationTab.HOME)
 
@@ -102,9 +104,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        categoryRepository = CategoryRepository(this)
-        settingsRepository = AppSettingsRepository(this)
-        historyRepository = OrganizedHistoryRepository(this)
+        val container = (application as ScreenArcApplication).appContainer
+        categoryRepository = container.categoryRepository
+        settingsRepository = container.settingsRepository
+        historyRepository = container.historyRepository
 
         handleIncomingIntent(intent)
         requestRequiredPermissions()

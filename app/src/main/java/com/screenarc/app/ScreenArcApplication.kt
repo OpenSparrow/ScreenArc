@@ -5,7 +5,13 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
 
+import com.screenarc.app.di.AppContainer
+import com.screenarc.app.di.DefaultAppContainer
+
 class ScreenArcApplication : Application() {
+
+    lateinit var appContainer: AppContainer
+        private set
 
     companion object {
         const val CHANNEL_ID = "screenarc_overlay_channel"
@@ -16,7 +22,15 @@ class ScreenArcApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        appContainer = DefaultAppContainer(this)
         createNotificationChannel()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_MODERATE) {
+            appContainer.ocrRepository.closeRecognizers()
+        }
     }
 
     private fun createNotificationChannel() {
