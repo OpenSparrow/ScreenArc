@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,7 +18,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -26,6 +29,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
@@ -36,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -58,15 +64,32 @@ fun RuleEditorDialog(
     onSave: (AutoCategorizationRule) -> Unit
 ) {
     var name by remember { mutableStateOf(initialRule?.name ?: "") }
-    var primaryKeywordsString by remember { mutableStateOf(initialRule?.primaryKeywords?.joinToString(", ") ?: "") }
-    var secondaryKeywordsString by remember { mutableStateOf(initialRule?.secondaryKeywords?.joinToString(", ") ?: "") }
+
+    // Combine legacy secondary keywords into keywords chips
+    val initialKeywords = remember(initialRule) {
+        val list = mutableListOf<String>()
+        if (initialRule != null) {
+            list.addAll(initialRule.primaryKeywords)
+            // Fold secondary keywords into keywords list if present
+            initialRule.secondaryKeywords.forEach { kw ->
+                if (!list.contains(kw)) list.add(kw)
+            }
+        }
+        list
+    }
+
+    val keywordsList = remember { mutableStateListOf<String>().apply { addAll(initialKeywords) } }
+    var keywordInputText by remember { mutableStateOf("") }
+    var optionalRegexPattern by remember {
+        mutableStateOf(if (initialRule?.isRegexEnabled == true) initialRule.primaryKeywords.firstOrNull() ?: "" else "")
+    }
+    var isRegexMode by remember { mutableStateOf(initialRule?.isRegexEnabled ?: false) }
+
     var selectedCategoryId by remember {
         mutableStateOf(initialRule?.targetCategoryId ?: categories.firstOrNull()?.id ?: 1L)
     }
     var priority by remember { mutableStateOf(initialRule?.priority ?: 0) }
-    var secondaryThreshold by remember { mutableStateOf(initialRule?.secondaryThreshold ?: 2) }
     var matchWholeWord by remember { mutableStateOf(initialRule?.matchWholeWord ?: false) }
-    var isRegexEnabled by remember { mutableStateOf(initialRule?.isRegexEnabled ?: false) }
     var onlyNewScreenshots by remember { mutableStateOf(initialRule?.onlyNewScreenshots ?: true) }
     var isEnabled by remember { mutableStateOf(initialRule?.isEnabled ?: true) }
     var categoryDropdownExpanded by remember { mutableStateOf(false) }
@@ -78,24 +101,26 @@ fun RuleEditorDialog(
 
     // Transient rule instance for live testing
     val currentPreviewRule = remember(
-        name, primaryKeywordsString, secondaryKeywordsString, selectedCategoryId,
-        priority, secondaryThreshold, matchWholeWord, isRegexEnabled, onlyNewScreenshots, isEnabled
+        name, keywordsList.toList(), optionalRegexPattern, isRegexMode, selectedCategoryId,
+        priority, matchWholeWord, onlyNewScreenshots, isEnabled
     ) {
-        val pList = primaryKeywordsString.split(",").map { it.trim() }.filter { it.isNotBlank() }
-        val sList = secondaryKeywordsString.split(",").map { it.trim() }.filter { it.isNotBlank() }
+        val finalKeywords = if (isRegexMode && optionalRegexPattern.isNotBlank()) {
+            listOf(optionalRegexPattern.trim())
+        } else {
+            keywordsList.toList()
+        }
         AutoCategorizationRule(
             id = initialRule?.id ?: "preview",
             name = name,
-            primaryKeywords = pList,
-            secondaryKeywords = sList,
+            primaryKeywords = finalKeywords,
+            secondaryKeywords = emptyList(),
             targetCategoryId = selectedCategory?.id ?: 1L,
             targetCategoryName = selectedCategory?.name ?: "Category",
             priority = priority,
             isEnabled = isEnabled,
             onlyNewScreenshots = onlyNewScreenshots,
             matchWholeWord = matchWholeWord,
-            isRegexEnabled = isRegexEnabled,
-            secondaryThreshold = secondaryThreshold
+            isRegexEnabled = isRegexMode
         )
     }
 
@@ -110,7 +135,7 @@ fun RuleEditorDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(if (initialRule == null) "Create Priority Categorization Rule" else "Edit Categorization Rule")
+            Text(if (initialRule == null) "Create Auto-Categorization Rule" else "Edit Auto-Categorization Rule")
         },
         text = {
             LazyColumn(
@@ -122,7 +147,7 @@ fun RuleEditorDialog(
                         value = name,
                         onValueChange = { name = it },
                         label = { Text("Rule Name") },
-                        placeholder = { Text("e.g. Movie & Cinema, Tech Repos") },
+                        placeholder = { Text("e.g. Movies & TV, Tech Repos") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -174,49 +199,7 @@ fun RuleEditorDialog(
                     }
                 }
 
-                // Primary Keywords (High Priority)
-                item {
-                    OutlinedTextField(
-                        value = primaryKeywordsString,
-                        onValueChange = { primaryKeywordsString = it },
-                        label = { Text("Primary Keywords (High Priority)") },
-                        placeholder = { Text("e.g. movie, netflix, cinema, imdb") },
-                        supportingText = { Text("Any match routes to this category immediately", fontSize = 10.sp) },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                // Secondary Keywords (Supporting signals)
-                item {
-                    OutlinedTextField(
-                        value = secondaryKeywordsString,
-                        onValueChange = { secondaryKeywordsString = it },
-                        label = { Text("Secondary Keywords (Supporting Signals)") },
-                        placeholder = { Text("e.g. trailer, director, cast, streaming") },
-                        supportingText = { Text("Supporting matches break ties and route if threshold met", fontSize = 10.sp) },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                // Secondary Threshold Slider
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Secondary Match Threshold: $secondaryThreshold", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold))
-                        Text("Requires ≥$secondaryThreshold matches", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Slider(
-                        value = secondaryThreshold.toFloat(),
-                        onValueChange = { secondaryThreshold = it.toInt() },
-                        valueRange = 1f..5f,
-                        steps = 3
-                    )
-                }
-
-                // Options switches
+                // Regex mode toggle
                 item {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -224,10 +207,103 @@ fun RuleEditorDialog(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Whole-word matching", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold))
-                            Text("Matches exact word boundaries (avoids partial substrings)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Optional Regex Pattern Mode", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold))
+                            Text("Use regex pattern instead of keyword chips", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Switch(checked = matchWholeWord, onCheckedChange = { matchWholeWord = it })
+                        Switch(checked = isRegexMode, onCheckedChange = { isRegexMode = it })
+                    }
+                }
+
+                if (isRegexMode) {
+                    item {
+                        OutlinedTextField(
+                            value = optionalRegexPattern,
+                            onValueChange = { optionalRegexPattern = it },
+                            label = { Text("Regex Pattern") },
+                            placeholder = { Text("e.g. (invoice|receipt) #[0-9]+") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            supportingText = { Text("Evaluates matches against OCR text using standard regex", fontSize = 10.sp) }
+                        )
+                    }
+                } else {
+                    // Keywords Chips input
+                    item {
+                        Column {
+                            Text(
+                                text = "Keywords (Chips)",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = keywordInputText,
+                                    onValueChange = { keywordInputText = it },
+                                    label = { Text("Add Keyword") },
+                                    placeholder = { Text("e.g. netflix, invoice") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(
+                                    onClick = {
+                                        val kw = keywordInputText.trim()
+                                        if (kw.isNotBlank() && !keywordsList.contains(kw)) {
+                                            keywordsList.add(kw)
+                                            keywordInputText = ""
+                                        }
+                                    },
+                                    enabled = keywordInputText.isNotBlank()
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = "Add Keyword")
+                                }
+                            }
+
+                            if (keywordsList.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                FlowRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    keywordsList.forEach { kw ->
+                                        InputChip(
+                                            selected = true,
+                                            onClick = { keywordsList.remove(kw) },
+                                            label = { Text(kw) },
+                                            trailingIcon = {
+                                                Icon(
+                                                    Icons.Default.Close,
+                                                    contentDescription = "Remove $kw",
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Whole-word matching switch
+                if (!isRegexMode) {
+                    item {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Whole-word matching", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold))
+                                Text("Match exact word boundaries to avoid partial substrings", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(checked = matchWholeWord, onCheckedChange = { matchWholeWord = it })
+                        }
                     }
                 }
 
@@ -237,21 +313,7 @@ fun RuleEditorDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Regex / pattern mode", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold))
-                            Text("Evaluate keywords as regular expressions", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Switch(checked = isRegexEnabled, onCheckedChange = { isRegexEnabled = it })
-                    }
-                }
-
-                item {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Process only new screenshots", style = MaterialTheme.typography.bodySmall)
+                        Text("Process only unorganized screenshots", style = MaterialTheme.typography.bodySmall)
                         Checkbox(checked = onlyNewScreenshots, onCheckedChange = { onlyNewScreenshots = it })
                     }
                 }
@@ -262,63 +324,73 @@ fun RuleEditorDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Rule Enabled", style = MaterialTheme.typography.bodySmall)
+                        Text("Enable rule", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold))
                         Switch(checked = isEnabled, onCheckedChange = { isEnabled = it })
                     }
                 }
 
-                // Interactive "Test this rule" Sandbox Box
+                // Priority Slider
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Execution Priority: $priority", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold))
+                        Text(if (priority == 0) "Highest" else "Lower", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Slider(
+                        value = priority.toFloat(),
+                        onValueChange = { priority = it.toInt() },
+                        valueRange = 0f..10f,
+                        steps = 9
+                    )
+                }
+
+                // Live Simulator / Tester
                 item {
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Test this rule (Live Sandbox)",
-                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    text = "Live Rule Tester",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Type or paste sample OCR text to see if and why this rule matches.",
-                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
 
                             OutlinedTextField(
                                 value = sampleTestText,
                                 onValueChange = { sampleTestText = it },
-                                placeholder = { Text("Paste sample text here, e.g., 'Watch Inception on Netflix tonight'...", fontSize = 11.sp) },
-                                modifier = Modifier.fillMaxWidth().height(80.dp),
+                                label = { Text("Sample Text") },
+                                placeholder = { Text("Paste sample OCR text here to test rule matching...") },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(90.dp),
                                 textStyle = MaterialTheme.typography.bodySmall
                             )
 
                             if (testEvaluation != null) {
                                 Spacer(modifier = Modifier.height(8.dp))
-
                                 Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = if (testEvaluation.isAssigned) Color(0x224CAF50) else Color(0x22E53935),
-                                    border = BorderStroke(1.dp, if (testEvaluation.isAssigned) Color(0xFF4CAF50) else Color(0xFFE53935)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (testEvaluation.isAssigned) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
+                                    border = BorderStroke(1.dp, if (testEvaluation.isAssigned) Color(0xFF4CAF50) else Color(0xFFEF5350)),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Column(modifier = Modifier.padding(10.dp)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                text = if (testEvaluation.isAssigned) "✔ MATCH -> Assigned to ${selectedCategory?.name}" else "✖ NO MATCH",
-                                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                                color = if (testEvaluation.isAssigned) Color(0xFF2E7D32) else Color(0xFFC62828)
-                                            )
-                                        }
+                                    Column(modifier = Modifier.padding(8.dp)) {
+                                        Text(
+                                            text = if (testEvaluation.isAssigned) "✔ MATCH -> Assigned to ${selectedCategory?.name}" else "✖ NO MATCH",
+                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = if (testEvaluation.isAssigned) Color(0xFF2E7D32) else Color(0xFFC62828)
+                                        )
 
                                         Spacer(modifier = Modifier.height(4.dp))
 
@@ -327,24 +399,6 @@ fun RuleEditorDialog(
                                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
-
-                                        if (testEvaluation.matchedPrimaryKeywords.isNotEmpty()) {
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                text = "Matched Primaries: ${testEvaluation.matchedPrimaryKeywords.joinToString(", ")}",
-                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-
-                                        if (testEvaluation.matchedSecondaryKeywords.isNotEmpty()) {
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text(
-                                                text = "Matched Secondaries: ${testEvaluation.matchedSecondaryKeywords.joinToString(", ")}",
-                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                                color = MaterialTheme.colorScheme.secondary
-                                            )
-                                        }
                                     }
                                 }
                             }
@@ -354,30 +408,38 @@ fun RuleEditorDialog(
             }
         },
         confirmButton = {
+            val hasValidContent = if (isRegexMode) {
+                optionalRegexPattern.isNotBlank()
+            } else {
+                keywordsList.isNotEmpty()
+            }
+
             Button(
                 onClick = {
-                    val pList = primaryKeywordsString.split(",").map { it.trim() }.filter { it.isNotBlank() }
-                    val sList = secondaryKeywordsString.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                    val finalKeywords = if (isRegexMode && optionalRegexPattern.isNotBlank()) {
+                        listOf(optionalRegexPattern.trim())
+                    } else {
+                        keywordsList.toList()
+                    }
 
                     val finalRule = AutoCategorizationRule(
                         id = initialRule?.id ?: java.util.UUID.randomUUID().toString(),
                         name = if (name.isBlank()) "Categorization Rule" else name.trim(),
-                        primaryKeywords = pList,
-                        secondaryKeywords = sList,
+                        primaryKeywords = finalKeywords,
+                        secondaryKeywords = emptyList(),
                         targetCategoryId = selectedCategory?.id ?: 1L,
                         targetCategoryName = selectedCategory?.name ?: "Tech",
                         priority = priority,
                         isEnabled = isEnabled,
                         onlyNewScreenshots = onlyNewScreenshots,
                         matchWholeWord = matchWholeWord,
-                        isRegexEnabled = isRegexEnabled,
-                        secondaryThreshold = secondaryThreshold,
+                        isRegexEnabled = isRegexMode,
                         matchCount = initialRule?.matchCount ?: 0,
                         lastRunTimestamp = initialRule?.lastRunTimestamp
                     )
                     onSave(finalRule)
                 },
-                enabled = name.isNotBlank() && (primaryKeywordsString.isNotBlank() || secondaryKeywordsString.isNotBlank())
+                enabled = name.isNotBlank() && hasValidContent
             ) {
                 Text("Save Rule")
             }

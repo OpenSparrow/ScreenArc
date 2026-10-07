@@ -201,11 +201,12 @@ fun RuleItemCard(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Primary Keywords chips
-                    if (rule.primaryKeywords.isNotEmpty()) {
+                    // Keywords chips
+                    val allKeywords = rule.primaryKeywords + rule.secondaryKeywords
+                    if (allKeywords.isNotEmpty()) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
                             Text(
-                                text = "PRIMARY:",
+                                text = if (rule.isRegexEnabled) "PATTERN:" else "KEYWORDS:",
                                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.ExtraBold),
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -214,46 +215,16 @@ fun RuleItemCard(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 verticalArrangement = Arrangement.spacedBy(3.dp)
                             ) {
-                                rule.primaryKeywords.forEach { kw ->
+                                allKeywords.forEach { kw ->
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
                                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                                         border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
                                     ) {
                                         Text(
-                                            text = "#$kw",
+                                            text = if (rule.isRegexEnabled) kw else "#$kw",
                                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
                                             color = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Secondary Keywords chips
-                    if (rule.secondaryKeywords.isNotEmpty()) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
-                            Text(
-                                text = "SECONDARY (≥${rule.secondaryThreshold}):",
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.secondary
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalArrangement = Arrangement.spacedBy(3.dp)
-                            ) {
-                                rule.secondaryKeywords.forEach { kw ->
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
-                                    ) {
-                                        Text(
-                                            text = "#$kw",
-                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
                                     }
