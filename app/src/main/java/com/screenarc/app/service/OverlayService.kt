@@ -20,6 +20,8 @@ import android.view.MotionEvent
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.Lifecycle
@@ -316,9 +318,9 @@ class OverlayService : Service() {
             }
 
             setContent {
-                val categories = categoryRepository.categories.value
-                val settings = settingsRepository.settings.value
-                val history = historyRepository.history.value
+                val categories by categoryRepository.categories.collectAsState()
+                val settings by settingsRepository.settings.collectAsState()
+                val history by historyRepository.history.collectAsState()
 
                 // Compute usage counts for each category
                 val usageMap = remember(history) {
