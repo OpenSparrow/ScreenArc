@@ -42,11 +42,11 @@ class ScreenshotObserver(
         debounceJob = scope.launch(Dispatchers.IO) {
             // Small initial debounce to let screenshot writer finish flushing image data
             delay(350)
-            checkLatestScreenshot(attempt = 1)
+            checkLatestScreenshot(attempt = 1, triggerUri = uri)
         }
     }
 
-    private suspend fun checkLatestScreenshot(attempt: Int = 1) {
+    private suspend fun checkLatestScreenshot(attempt: Int = 1, triggerUri: Uri? = null) {
         val projection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             arrayOf(
                 MediaStore.Images.Media._ID,
@@ -76,16 +76,18 @@ class ScreenshotObserver(
         }
 
         try {
-            val cursor = context.contentResolver.query(
-                collection,
-                projection,
-                null,
-                null,
-                sortOrder
-            )
+            // If triggerUri is a specific image uri (e.g. content://media/external/images/media/123), try querying it directly first
+            val cursor = if (triggerUri != null && triggerUri.toString().contains("/images/media/")) {
+                context.contentResolver.query(triggerUri, projection, null, null, null)
+                    ?: context.contentResolver.query(collection, projection, null, null, sortOrder)
+            } else {
+                context.contentResolver.query(collection, projection, null, null, sortOrder)
+            }
 
             cursor?.use {
-                if (it.moveToFirst()) {
+                var checkedCount = 0
+                while (it.moveToNext() && checkedCount < 5) {
+                    checkedCount++
                     val idColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
                     val nameColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
                     val dateColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
@@ -104,7 +106,7 @@ class ScreenshotObserver(
                             if (attempt < 4) {
                                 scope.launch(Dispatchers.IO) {
                                     delay(250L * attempt)
-                                    checkLatestScreenshot(attempt + 1)
+                                    checkLatestScreenshot(attempt + 1, triggerUri)
                                 }
                             }
                             return
@@ -113,7 +115,7 @@ class ScreenshotObserver(
 
                     val id = it.getLong(idColumn)
                     val name = it.getString(nameColumn) ?: ""
-                    val dateAdded = it.getLong(dateColumn)
+                    val rawDateAdded = it.getLong(dateColumn)
                     val size = it.getLong(sizeColumn)
                     val mime = it.getString(mimeColumn) ?: "image/png"
                     val path = it.getString(pathColumn) ?: ""
@@ -123,7 +125,7 @@ class ScreenshotObserver(
                         Log.d(TAG, "Screenshot size is 0 bytes (attempt $attempt), scheduling retry...")
                         scope.launch(Dispatchers.IO) {
                             delay(250L * attempt)
-                            checkLatestScreenshot(attempt + 1)
+                            checkLatestScreenshot(attempt + 1, triggerUri)
                         }
                         return
                     }
@@ -131,7 +133,7 @@ class ScreenshotObserver(
                     // Check if already processed
                     val contentUri = ContentUris.withAppendedId(collection, id)
                     if (processedIds.contains(id) || processedUris.contains(contentUri.toString())) {
-                        return
+                        continue
                     }
 
                     // Verify if it's in an already categorized subfolder
@@ -148,14 +150,26 @@ class ScreenshotObserver(
                     if (isCategorizedSubfolder) {
                         Log.d(TAG, "Ignoring screenshot in categorized subfolder: $path")
                         markProcessed(id, contentUri)
-                        return
+                        continue
                     }
 
-                    // Verify if it's a screenshot
+                    // Normalize timestamp to seconds
+                    val dateAddedSec = if (rawDateAdded > 100_000_000_000L) rawDateAdded / 1000 else rawDateAdded
                     val currentTimeSec = System.currentTimeMillis() / 1000
-                    val isRecent = (currentTimeSec - dateAdded) < 45 // within last 45 seconds
-                    val isScreenshotPath = path.contains("Screenshots", ignoreCase = true)
-                    val isScreenshotName = name.contains("Screenshot", ignoreCase = true)
+                    val isRecent = dateAddedSec == 0L || kotlin.math.abs(currentTimeSec - dateAddedSec) < 180
+
+                    // Support diverse OEM screenshot directories & naming patterns
+                    val isScreenshotPath = path.contains("screenshot", ignoreCase = true) ||
+                            path.contains("screencapture", ignoreCase = true) ||
+                            path.contains("screen_capture", ignoreCase = true) ||
+                            path.contains("screen-capture", ignoreCase = true)
+
+                    val isScreenshotName = name.contains("screenshot", ignoreCase = true) ||
+                            name.startsWith("screen_", ignoreCase = true) ||
+                            name.startsWith("capture_", ignoreCase = true) ||
+                            name.contains("screen_shot", ignoreCase = true) ||
+                            name.contains("screencap", ignoreCase = true) ||
+                            name.contains("screen-shot", ignoreCase = true)
 
                     if (isRecent && (isScreenshotPath || isScreenshotName)) {
                         markProcessed(id, contentUri)
@@ -170,7 +184,7 @@ class ScreenshotObserver(
                             id = id,
                             uri = contentUri,
                             displayName = name,
-                            dateAdded = dateAdded,
+                            dateAdded = dateAddedSec,
                             size = size,
                             relativePath = path,
                             mimeType = mime,
@@ -181,6 +195,7 @@ class ScreenshotObserver(
                         scope.launch(Dispatchers.Main) {
                             onScreenshotDetected(item)
                         }
+                        return
                     }
                 }
             }

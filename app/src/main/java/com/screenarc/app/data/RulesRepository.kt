@@ -242,6 +242,8 @@ class RulesRepository(
 
         val allScreenshotsEntities = screenshotRepository.getAllScreenshotsFlow().first()
         val allScreenshots = allScreenshotsEntities.map { it.toUiModel() }
+        // Strictly apply rules only to uncategorized screenshots; already categorized items are preserved
+        val uncategorizedScreenshots = allScreenshots.filter { it.categoryId == null }
         val categories = categoryRepository.categories.value
 
         val targetCategory = categories.find { it.id == rule.targetCategoryId }
@@ -252,10 +254,19 @@ class RulesRepository(
             return@withContext RuleExecutionResult(0, 0, 0, "Target category not found")
         }
 
+        if (uncategorizedScreenshots.isEmpty()) {
+            return@withContext RuleExecutionResult(
+                executedRulesCount = 1,
+                matchedScreenshotsCount = 0,
+                movedScreenshotsCount = 0,
+                message = "All screenshots are already categorized. Rules only evaluate uncategorized items."
+            )
+        }
+
         var matchedCount = 0
         var movedCount = 0
 
-        for (screenshot in allScreenshots) {
+        for (screenshot in uncategorizedScreenshots) {
             var currentItem = screenshot
 
             if (currentItem.ocrStatus != "COMPLETED" && currentItem.ocrStatus != "NO_TEXT") {
@@ -321,12 +332,23 @@ class RulesRepository(
         screenshotRepository.syncMediaStoreScreenshots()
         val categories = categoryRepository.categories.value
         val allScreenshots = screenshotRepository.getAllScreenshotsFlow().first().map { it.toUiModel() }
+        // Strictly apply rules only to uncategorized screenshots; already categorized items are preserved
+        val uncategorizedScreenshots = allScreenshots.filter { it.categoryId == null }
+
+        if (uncategorizedScreenshots.isEmpty()) {
+            return@withContext RuleExecutionResult(
+                executedRulesCount = activeRules.size,
+                matchedScreenshotsCount = 0,
+                movedScreenshotsCount = 0,
+                message = "All screenshots are already categorized. Rules only evaluate uncategorized items."
+            )
+        }
 
         var totalMatched = 0
         var totalMoved = 0
         val ruleMatchCounts = mutableMapOf<String, Int>()
 
-        for (screenshot in allScreenshots) {
+        for (screenshot in uncategorizedScreenshots) {
             var currentItem = screenshot
 
             if (currentItem.ocrStatus != "COMPLETED" && currentItem.ocrStatus != "NO_TEXT") {

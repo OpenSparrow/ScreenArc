@@ -109,7 +109,8 @@ fun HomeScreen(
         contract = ActivityResultContracts.StartActivityForResult()
     ) {
         hasOverlayPermission = Settings.canDrawOverlays(context)
-        if (hasOverlayPermission && settings.isServiceEnabled) {
+        if (hasOverlayPermission) {
+            settingsRepo.updateSettings { it.copy(isServiceEnabled = true) }
             OverlayService.startService(context)
         }
     }

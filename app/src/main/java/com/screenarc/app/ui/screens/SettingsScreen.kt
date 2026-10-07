@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentPaste
@@ -96,7 +97,10 @@ fun SettingsScreen(
         )
     }
 
+    val listState = rememberLazyListState()
+
     LazyColumn(
+        state = listState,
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
@@ -160,7 +164,9 @@ fun SettingsScreen(
                     onToggleAllTabs = toggleAllTabs,
                     onCreateRule = { showCreateRuleDialog = true },
                     onEditRule = { ruleToEdit = it },
-                    searchViewModel = vm
+                    searchViewModel = vm,
+                    settings = settings,
+                    onUpdateSettings = { settingsRepo.updateSettings(it) }
                 )
             }
         }

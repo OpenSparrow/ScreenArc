@@ -98,7 +98,21 @@ class MainActivity : ComponentActivity() {
     private val permissionRequestLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        // Granted permissions handled
+        checkAndStartOverlayServiceIfEnabled()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        checkAndStartOverlayServiceIfEnabled()
+    }
+
+    private fun checkAndStartOverlayServiceIfEnabled() {
+        if (::settingsRepository.isInitialized &&
+            Settings.canDrawOverlays(this) &&
+            settingsRepository.settings.value.isServiceEnabled
+        ) {
+            OverlayService.startService(this)
+        }
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -114,6 +128,7 @@ class MainActivity : ComponentActivity() {
 
         handleIncomingIntent(intent)
         requestRequiredPermissions()
+        checkAndStartOverlayServiceIfEnabled()
 
         setContent {
             val settings by settingsRepository.settings.collectAsState()

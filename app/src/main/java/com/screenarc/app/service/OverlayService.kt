@@ -48,6 +48,7 @@ import com.screenarc.app.model.ScreenshotItem
 import com.screenarc.app.palette.PaletteExtractor
 import com.screenarc.app.storage.MediaStoreOrganizer
 import com.screenarc.app.ui.overlay.FloatingOverlayView
+import com.screenarc.app.ui.theme.ScreenArcTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -183,18 +184,30 @@ class OverlayService : Service() {
                 true,
                 screenshotObserver!!
             )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                try {
+                    contentResolver.registerContentObserver(
+                        MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL),
+                        true,
+                        screenshotObserver!!
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not register VOLUME_EXTERNAL observer: ${e.message}")
+                }
+            }
             Log.d(TAG, "Registered MediaStore content observer successfully")
         }
     }
 
     private fun handleDetectedScreenshot(screenshot: ScreenshotItem) {
         val settings = settingsRepository.settings.value
-        if (settings.autoOcrEnabled) {
+        val activeRules = rulesRepository.rules.value.filter { it.isEnabled }.sortedBy { it.priority }
+
+        if (settings.autoOcrEnabled || activeRules.isNotEmpty()) {
             serviceScope.launch {
                 try {
                     val ocrResult = ocrRepository.recognizeText(screenshot.uri, settings.ocrLanguage)
                     if (ocrResult.success && ocrResult.recognizedText.isNotBlank()) {
-                        val activeRules = rulesRepository.rules.value.filter { it.isEnabled }.sortedBy { it.priority }
                         val winningMatch = com.screenarc.app.model.AutoCategorizationRule.resolveBestMatch(activeRules, ocrResult.recognizedText)
                         if (winningMatch != null && winningMatch.isAssigned) {
                             val categories = categoryRepository.categories.value
@@ -204,6 +217,11 @@ class OverlayService : Service() {
                             if (targetCat != null) {
                                 if (settings.autoAssignRulesEnabled) {
                                     Log.d(TAG, "Auto-categorizing screenshot ${screenshot.displayName} -> ${targetCat.name} via rule '${winningMatch.rule.name}'")
+                                    Toast.makeText(
+                                        this@OverlayService,
+                                        "Auto-categorized into ${targetCat.name} ('${winningMatch.rule.name}')",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
                                     handleMoveToCategory(screenshot, targetCat)
                                     return@launch
                                 } else {
@@ -331,38 +349,43 @@ class OverlayService : Service() {
                         }.toMap()
                 }
 
-                FloatingOverlayView(
-                    screenshot = screenshot,
-                    categories = categories,
-                    settings = settings,
-                    suggestedCategoryId = suggestedCategoryId,
-                    categoryUsageMap = usageMap,
-                    onMoveToCategory = { category ->
-                        handleMoveToCategory(screenshot, category)
-                    },
-                    onUndoMove = { category ->
-                        handleUndoMove(screenshot, category)
-                    },
-                    onDeleteScreenshot = {
-                        handleDeleteScreenshot(screenshot)
-                    },
-                    onShareScreenshot = {
-                        handleShareScreenshot(screenshot)
-                    },
-                    onDismiss = {
-                        removeOverlayView(clearCurrentScreenshot = true)
-                    },
-                    onOpenSearch = {
-                        val openAppIntent = Intent(this@OverlayService, MainActivity::class.java).apply {
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                            putExtra(MainActivity.EXTRA_NAVIGATE_TAB, MainActivity.TAB_SEARCH)
+                ScreenArcTheme(
+                    themePreset = settings.themePreset,
+                    uiDesignStyle = settings.uiDesignStyle
+                ) {
+                    FloatingOverlayView(
+                        screenshot = screenshot,
+                        categories = categories,
+                        settings = settings,
+                        suggestedCategoryId = suggestedCategoryId,
+                        categoryUsageMap = usageMap,
+                        onMoveToCategory = { category ->
+                            handleMoveToCategory(screenshot, category)
+                        },
+                        onUndoMove = { category ->
+                            handleUndoMove(screenshot, category)
+                        },
+                        onDeleteScreenshot = {
+                            handleDeleteScreenshot(screenshot)
+                        },
+                        onShareScreenshot = {
+                            handleShareScreenshot(screenshot)
+                        },
+                        onDismiss = {
+                            removeOverlayView(clearCurrentScreenshot = true)
+                        },
+                        onOpenSearch = {
+                            val openAppIntent = Intent(this@OverlayService, MainActivity::class.java).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                                putExtra(MainActivity.EXTRA_NAVIGATE_TAB, MainActivity.TAB_SEARCH)
+                            }
+                            startActivity(openAppIntent)
+                        },
+                        onStyleChanged = { newStyle ->
+                            settingsRepository.updateSettings { it.copy(arcDesignStyle = newStyle) }
                         }
-                        startActivity(openAppIntent)
-                    },
-                    onStyleChanged = { newStyle ->
-                        settingsRepository.updateSettings { it.copy(arcDesignStyle = newStyle) }
-                    }
-                )
+                    )
+                }
             }
         }
 

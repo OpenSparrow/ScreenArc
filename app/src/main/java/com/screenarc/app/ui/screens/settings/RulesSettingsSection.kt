@@ -33,6 +33,7 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,6 +43,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.screenarc.app.data.AppSettings
 import com.screenarc.app.model.AutoCategorizationRule
 import com.screenarc.app.model.CategoryUiModel
 import com.screenarc.app.ui.theme.GlassElevatedCard
@@ -58,7 +60,9 @@ fun RulesSettingsSection(
     onToggleAllTabs: () -> Unit,
     onCreateRule: () -> Unit,
     onEditRule: (AutoCategorizationRule) -> Unit,
-    searchViewModel: SearchViewModel
+    searchViewModel: SearchViewModel,
+    settings: AppSettings? = null,
+    onUpdateSettings: (((AppSettings) -> AppSettings) -> Unit)? = null
 ) {
     val rulesArrowRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
@@ -120,7 +124,42 @@ fun RulesSettingsSection(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    if (settings != null && onUpdateSettings != null) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Auto-apply rules on capture",
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                                    )
+                                    Text(
+                                        text = "Automatically move new uncategorized screenshots into their category when rules match. Already categorized screenshots are never modified.",
+                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Switch(
+                                    checked = settings.autoAssignRulesEnabled,
+                                    onCheckedChange = { isChecked ->
+                                        onUpdateSettings { it.copy(autoOcrEnabled = if (isChecked) true else it.autoOcrEnabled, autoAssignRulesEnabled = isChecked) }
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
 
                     // Header action: Run All Active Rules Button + Adjacent Global Expand/Collapse Toggle
                     Row(
