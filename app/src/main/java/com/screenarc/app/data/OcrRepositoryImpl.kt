@@ -29,6 +29,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -44,6 +45,9 @@ class OcrRepositoryImpl(
     private val ocrDao = database.ocrDao()
     private val screenshotDao = database.screenshotDao()
 
+    // Cached TextRecognizer instances per OcrLanguage
+    private val recognizerCache = ConcurrentHashMap<OcrLanguage, TextRecognizer>()
+
     // Bounded concurrency semaphore: max 1 simultaneous OCR job to maintain thermal & CPU balance
     private val ocrSemaphore = Semaphore(1)
     private var activeBatchJob: Job? = null
@@ -52,14 +56,27 @@ class OcrRepositoryImpl(
     private val _batchProgress = MutableStateFlow(OcrBatchProgress.IDLE)
     override val batchProgress: StateFlow<OcrBatchProgress> = _batchProgress.asStateFlow()
 
+    private fun getOrCreateRecognizer(language: OcrLanguage): TextRecognizer {
+        return recognizerCache.computeIfAbsent(language) { lang ->
+            activeProvider.createRecognizer(lang)
+        }
+    }
+
+    override fun closeRecognizers() {
+        for ((_, recognizer) in recognizerCache) {
+            try {
+                recognizer.close()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error closing cached TextRecognizer", e)
+            }
+        }
+        recognizerCache.clear()
+    }
+
     override suspend fun recognizeText(uri: Uri, language: OcrLanguage?): OcrResult = withContext(Dispatchers.IO) {
         val targetLanguage = language ?: settingsRepository.settings.value.ocrLanguage
-        val recognizer = activeProvider.createRecognizer(targetLanguage)
-        try {
-            recognizeWithRecognizer(uri, recognizer)
-        } finally {
-            recognizer.close()
-        }
+        val recognizer = getOrCreateRecognizer(targetLanguage)
+        recognizeWithRecognizer(uri, recognizer)
     }
 
     private suspend fun recognizeWithRecognizer(
@@ -203,40 +220,36 @@ class OcrRepositoryImpl(
 
     override suspend fun recognizePendingScreenshots(language: OcrLanguage?): OcrBatchResult = withContext(Dispatchers.IO) {
         val targetLanguage = language ?: settingsRepository.settings.value.ocrLanguage
-        val recognizer = activeProvider.createRecognizer(targetLanguage)
+        val recognizer = getOrCreateRecognizer(targetLanguage)
         isCancelled.set(false)
 
-        try {
-            val unprocessed = screenshotDao.getUnprocessedScreenshots()
-            var successCount = 0
-            var failCount = 0
-            var processedCount = 0
+        val unprocessed = screenshotDao.getUnprocessedScreenshots()
+        var successCount = 0
+        var failCount = 0
+        var processedCount = 0
 
-            for (screenshot in unprocessed) {
-                if (isCancelled.get()) break
-                try {
-                    val result = recognizeWithRecognizer(Uri.parse(screenshot.uri), recognizer)
-                    processedCount++
-                    if (result.success) {
-                        successCount++
-                    } else {
-                        failCount++
-                    }
-                } catch (e: CancellationException) {
-                    break
-                } catch (e: Exception) {
+        for (screenshot in unprocessed) {
+            if (isCancelled.get()) break
+            try {
+                val result = recognizeWithRecognizer(Uri.parse(screenshot.uri), recognizer)
+                processedCount++
+                if (result.success) {
+                    successCount++
+                } else {
                     failCount++
                 }
+            } catch (e: CancellationException) {
+                break
+            } catch (e: Exception) {
+                failCount++
             }
-
-            OcrBatchResult(
-                processedCount = processedCount,
-                successCount = successCount,
-                failureCount = failCount
-            )
-        } finally {
-            recognizer.close()
         }
+
+        OcrBatchResult(
+            processedCount = processedCount,
+            successCount = successCount,
+            failureCount = failCount
+        )
     }
 
     /**
@@ -300,8 +313,8 @@ class OcrRepositoryImpl(
             isCancelled = false
         )
 
-        // Reuse single model for the entire batch
-        val recognizer = activeProvider.createRecognizer(targetLanguage)
+        // Reuse cached model for the batch
+        val recognizer = getOrCreateRecognizer(targetLanguage)
         var indexed = 0
         var failed = 0
         var lastErr: String? = null
@@ -345,7 +358,6 @@ class OcrRepositoryImpl(
                 kotlinx.coroutines.yield()
             }
         } finally {
-            recognizer.close()
             val wasCancelled = isCancelled.get()
             val finalProgress = _batchProgress.value.copy(
                 isRunning = false,
