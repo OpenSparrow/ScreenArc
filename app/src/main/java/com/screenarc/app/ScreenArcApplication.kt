@@ -24,6 +24,7 @@ class ScreenArcApplication : Application() {
         instance = this
         appContainer = DefaultAppContainer(this)
         createNotificationChannel()
+        com.screenarc.app.worker.OcrBackgroundWorker.enqueuePeriodicWork(this)
     }
 
     override fun onTrimMemory(level: Int) {
