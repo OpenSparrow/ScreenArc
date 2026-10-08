@@ -76,6 +76,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -120,6 +122,7 @@ fun FloatingOverlayView(
     onOpenSearch: () -> Unit,
     onStyleChanged: ((ArcDesignStyle) -> Unit)? = null,
     entities: List<com.screenarc.app.model.SmartEntity> = emptyList(),
+    onPhaseChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -150,6 +153,10 @@ fun FloatingOverlayView(
 
     val isExpanded = phase == OverlayPhase.ARC_EXPANDED
     val showUndoNotification = phase == OverlayPhase.UNDO_NOTIFICATION
+
+    LaunchedEffect(phase) {
+        onPhaseChanged(showUndoNotification)
+    }
 
     // Drag offset & snapping (only active in ARC_EXPANDED phase)
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
@@ -242,7 +249,7 @@ fun FloatingOverlayView(
     ) {
         BoxWithConstraints(
             modifier = modifier
-                .fillMaxSize()
+                .then(if (showUndoNotification) Modifier else Modifier.fillMaxSize())
                 .scale(exitScale)
                 .drawBehind {
                     if (exitAlpha < 1f) {
@@ -380,7 +387,6 @@ fun FloatingOverlayView(
                 label = "BubbleY"
             )
 
-            // Only show the main bubble if NOT in undo notification phase
             if (!showUndoNotification) {
                 Box(
                     modifier = Modifier

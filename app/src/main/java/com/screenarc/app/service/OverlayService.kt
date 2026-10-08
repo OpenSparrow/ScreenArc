@@ -342,9 +342,6 @@ class OverlayService : Service() {
             setViewTreeSavedStateRegistryOwner(overlayLifecycleOwner)
             setViewTreeViewModelStoreOwner(overlayLifecycleOwner)
 
-            // Touch events handled inside Compose UI via phase-based logic.
-            // ACTION_OUTSIDE is no longer used to auto-dismiss the bubble.
-
             setContent {
                 val categories by categoryRepository.categories.collectAsState()
                 val settings by settingsRepository.settings.collectAsState()
@@ -370,6 +367,28 @@ class OverlayService : Service() {
                         suggestedCategoryId = suggestedCategoryId,
                         categoryUsageMap = usageMap,
                         entities = entities,
+                        onPhaseChanged = { isUndoPhase ->
+                            // When in Undo phase, we change the window to WRAP_CONTENT and position it at bottom center.
+                            // This allows touches outside the toast to pass through to apps underneath.
+                            if (isUndoPhase) {
+                                layoutParams.width = WindowManager.LayoutParams.WRAP_CONTENT
+                                layoutParams.height = WindowManager.LayoutParams.WRAP_CONTENT
+                                layoutParams.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                                layoutParams.x = 0
+                                layoutParams.y = 0
+                            } else {
+                                layoutParams.width = WindowManager.LayoutParams.MATCH_PARENT
+                                layoutParams.height = WindowManager.LayoutParams.MATCH_PARENT
+                                layoutParams.gravity = Gravity.CENTER
+                                layoutParams.x = 0
+                                layoutParams.y = 0
+                            }
+                            try {
+                                windowManager?.updateViewLayout(this@apply, layoutParams)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Failed to update layout params: ${e.message}")
+                            }
+                        },
                         onMoveToCategory = { category ->
                             handleMoveToCategory(screenshot, category)
                         },
