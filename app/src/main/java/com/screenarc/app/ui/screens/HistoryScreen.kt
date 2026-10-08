@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -86,14 +87,14 @@ fun HistoryScreen(
     var selectedRecord by remember { mutableStateOf<OrganizedRecord?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
 
-    val ruleTriggerCount = remember(history) { history.count { it.ruleName != null || it.triggerType == OrganizedRecord.TRIGGER_RULE } }
-    val manualTriggerCount = remember(history) { history.count { it.ruleName == null && it.triggerType != OrganizedRecord.TRIGGER_RULE } }
+    val ruleTriggerCount = remember(history) { history.count { it.ruleName != null || it.triggerType == OrganizedRecord.TRIGGER_RULE || it.triggerType == OrganizedRecord.TRIGGER_AUTO } }
+    val manualTriggerCount = remember(history) { history.count { it.ruleName == null && it.triggerType != OrganizedRecord.TRIGGER_RULE && it.triggerType != OrganizedRecord.TRIGGER_AUTO } }
 
     val filteredList = remember(history, selectedFilter) {
         when (selectedFilter) {
             "All" -> history
-            "Rules" -> history.filter { it.ruleName != null || it.triggerType == OrganizedRecord.TRIGGER_RULE }
-            "Manual" -> history.filter { it.ruleName == null && it.triggerType != OrganizedRecord.TRIGGER_RULE }
+            "Rules" -> history.filter { it.ruleName != null || it.triggerType == OrganizedRecord.TRIGGER_RULE || it.triggerType == OrganizedRecord.TRIGGER_AUTO }
+            "Manual" -> history.filter { it.ruleName == null && it.triggerType != OrganizedRecord.TRIGGER_RULE && it.triggerType != OrganizedRecord.TRIGGER_AUTO }
             else -> history.filter { it.categoryName == selectedFilter }
         }
     }
@@ -281,7 +282,7 @@ fun HistoryScreen(
                                 }
 
                                 // Rule Provenance or Action Badge
-                                if (record.ruleName != null) {
+                                if (record.ruleName != null || record.triggerType == OrganizedRecord.TRIGGER_RULE) {
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
                                         color = MaterialTheme.colorScheme.tertiaryContainer
@@ -298,13 +299,47 @@ fun HistoryScreen(
                                             )
                                             Spacer(modifier = Modifier.width(3.dp))
                                             Text(
-                                                text = "Rule: ${record.ruleName}",
+                                                text = "Rule: ${record.ruleName ?: "Keyword"}",
                                                 style = MaterialTheme.typography.labelSmall.copy(
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 9.sp,
                                                     color = MaterialTheme.colorScheme.onTertiaryContainer
                                                 ),
                                                 maxLines = 1
+                                            )
+                                        }
+                                    }
+                                } else if (record.triggerType == OrganizedRecord.TRIGGER_AUTO) {
+                                    // Auto-categorized silently — show which keywords triggered it
+                                    val keywordsLabel = if (record.matchedKeywords.isNotEmpty()) {
+                                        record.matchedKeywords.take(2).joinToString(", ") { "\"$it\"" }
+                                    } else {
+                                        record.ruleName ?: "rule"
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                Icons.Default.AutoAwesome,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                modifier = Modifier.size(11.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text(
+                                                text = "Auto: $keywordsLabel",
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 9.sp,
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                ),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
                                             )
                                         }
                                     }
@@ -349,8 +384,24 @@ fun HistoryScreen(
                                 }
                             }
 
-                            // Rule matched keywords explanation
-                            if (record.matchedKeywords.isNotEmpty()) {
+                            // Keyword / rule description below badges
+                            if (record.triggerType == OrganizedRecord.TRIGGER_AUTO) {
+                                Spacer(modifier = Modifier.height(3.dp))
+                                val keywordsText = if (record.matchedKeywords.isNotEmpty())
+                                    "Auto-categorized using ${record.matchedKeywords.joinToString(", ") { "\"$it\"" }}"
+                                else
+                                    "Auto-categorized by rule '${record.ruleName ?: "keyword match"}'"
+                                Text(
+                                    text = keywordsText,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium
+                                    ),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            } else if (record.matchedKeywords.isNotEmpty()) {
                                 Spacer(modifier = Modifier.height(3.dp))
                                 Text(
                                     text = "Moved to ${record.categoryName} due to ${record.matchedKeywords.joinToString(", ") { "\"$it\"" }} words in the text",
@@ -424,7 +475,7 @@ fun HistoryScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     // Rule Provenance banner in modal
-                    if (record.ruleName != null) {
+                    if (record.ruleName != null || record.triggerType == OrganizedRecord.TRIGGER_RULE) {
                         Surface(
                             shape = RoundedCornerShape(10.dp),
                             color = MaterialTheme.colorScheme.tertiaryContainer,
@@ -442,17 +493,49 @@ fun HistoryScreen(
                                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                         color = MaterialTheme.colorScheme.onTertiaryContainer
                                     )
-                                    Text(
-                                        text = "Rule: '${record.ruleName}'",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onTertiaryContainer
-                                    )
+                                    if (record.ruleName != null) {
+                                        Text(
+                                            text = "Rule: '${record.ruleName}'",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                                        )
+                                    }
                                     if (record.matchedKeywords.isNotEmpty()) {
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
                                             text = "Moved to ${record.categoryName} due to ${record.matchedKeywords.joinToString(", ") { "\"$it\"" }} words in the text",
                                             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                                             color = MaterialTheme.colorScheme.onTertiaryContainer
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else if (record.triggerType == OrganizedRecord.TRIGGER_AUTO) {
+                        // Auto-categorized silently — banner shows matched keywords
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "Auto-categorized (no overlay shown)",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    if (record.matchedKeywords.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "Matched keywords: ${record.matchedKeywords.joinToString(", ") { "\"$it\"" }}",
+                                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
                                         )
                                     }
                                 }

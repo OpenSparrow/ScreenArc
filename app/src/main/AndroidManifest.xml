@@ -73,6 +73,15 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".receiver.ServiceWatchdogReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.screenarc.app.action.WATCHDOG_PING" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>

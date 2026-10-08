@@ -15,6 +15,7 @@ class BootReceiver : BroadcastReceiver() {
             if (settingsRepo.settings.value.isServiceEnabled) {
                 Log.d(TAG, "Restarting OverlayService on boot")
                 OverlayService.startService(context)
+                ServiceWatchdogReceiver.schedule(context)
             }
         }
     }

@@ -19,6 +19,7 @@ data class OrganizedRecord(
     companion object {
         const val TRIGGER_MANUAL = "MANUAL"
         const val TRIGGER_RULE = "RULE"
+        const val TRIGGER_AUTO = "AUTO"          // Auto-categorized silently via rule (no overlay shown)
         const val TRIGGER_BULK_MANUAL = "BULK_MANUAL"
         const val TRIGGER_OVERLAY = "OVERLAY"
     }

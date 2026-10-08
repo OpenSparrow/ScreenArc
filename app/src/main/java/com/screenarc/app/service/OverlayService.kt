@@ -16,7 +16,6 @@ import android.util.Log
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.runtime.remember
@@ -92,6 +91,7 @@ class OverlayService : Service() {
         overlayLifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
 
         startForeground(NOTIFICATION_ID, buildForegroundNotification())
+        com.screenarc.app.receiver.ServiceWatchdogReceiver.schedule(this)
         registerScreenshotObserver()
         observeCategoriesAndEvents()
     }
@@ -134,6 +134,7 @@ class OverlayService : Service() {
         when (intent?.action) {
             ACTION_STOP_SERVICE -> {
                 Log.d(TAG, "Stopping OverlayService")
+                com.screenarc.app.receiver.ServiceWatchdogReceiver.cancel(this)
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -227,7 +228,13 @@ class OverlayService : Service() {
                                         "Auto-categorized into ${targetCat.name} ('${winningMatch.rule.name}')",
                                         Toast.LENGTH_SHORT
                                     ).show()
-                                    handleMoveToCategory(screenshot, targetCat)
+                                    val allMatchedKeywords = winningMatch.matchedPrimaryKeywords + winningMatch.matchedSecondaryKeywords
+                                    handleMoveToCategory(
+                                        screenshot, targetCat,
+                                        triggerType = com.screenarc.app.model.OrganizedRecord.TRIGGER_AUTO,
+                                        ruleName = winningMatch.rule.name,
+                                        matchedKeywords = allMatchedKeywords
+                                    )
                                     return@launch
                                 } else {
                                     // Highlight & prioritize suggested category on radial overlay
@@ -335,14 +342,8 @@ class OverlayService : Service() {
             setViewTreeSavedStateRegistryOwner(overlayLifecycleOwner)
             setViewTreeViewModelStoreOwner(overlayLifecycleOwner)
 
-            setOnTouchListener { _, event ->
-                if (event.action == MotionEvent.ACTION_OUTSIDE) {
-                    removeOverlayView(clearCurrentScreenshot = true)
-                    true
-                } else {
-                    false
-                }
-            }
+            // Touch events handled inside Compose UI via phase-based logic.
+            // ACTION_OUTSIDE is no longer used to auto-dismiss the bubble.
 
             setContent {
                 val categories by categoryRepository.categories.collectAsState()
@@ -411,7 +412,13 @@ class OverlayService : Service() {
 
     private var lastMovedScreenshotUi: com.screenarc.app.model.ScreenshotUiModel? = null
 
-    private fun handleMoveToCategory(screenshot: ScreenshotItem, category: CategoryUiModel) {
+    private fun handleMoveToCategory(
+        screenshot: ScreenshotItem,
+        category: CategoryUiModel,
+        triggerType: String = com.screenarc.app.model.OrganizedRecord.TRIGGER_MANUAL,
+        ruleName: String? = null,
+        matchedKeywords: List<String> = emptyList()
+    ) {
         screenshotObserver?.markProcessed(screenshot.id, screenshot.uri)
 
         val screenshotUi = com.screenarc.app.model.ScreenshotUiModel(
@@ -426,7 +433,12 @@ class OverlayService : Service() {
         lastMovedScreenshotUi = screenshotUi
 
         serviceScope.launch {
-            val result = screenshotRepository.moveToCategory(screenshotUi, category)
+            val result = screenshotRepository.moveToCategory(
+                screenshotUi, category,
+                ruleName = ruleName,
+                triggerType = triggerType,
+                matchedKeywords = matchedKeywords
+            )
             result.onSuccess { newUri ->
                 screenshotObserver?.markProcessed(screenshot.id, newUri)
                 lastMovedScreenshotUi = screenshotUi.copy(uri = newUri.toString(), relativePath = "Pictures/Screenshots/${category.subfolderName}/", categoryId = category.id)

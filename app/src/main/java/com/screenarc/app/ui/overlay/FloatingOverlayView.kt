@@ -1,8 +1,6 @@
 package com.screenarc.app.ui.overlay
 
 import android.content.Context
-import android.content.Intent
-import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -45,8 +43,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -59,13 +55,11 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -77,7 +71,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -90,11 +83,9 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.screenarc.app.data.AppSettings
 import com.screenarc.app.model.ArcDesignStyle
 import com.screenarc.app.model.CategoryUiModel
@@ -103,6 +94,16 @@ import com.screenarc.app.ui.theme.ScreenArcTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+
+// ─── Overlay Phases ───────────────────────────────────────────────────────────
+private enum class OverlayPhase {
+    /** Small corner circle thumbnail — tappable, non-blocking */
+    BUBBLE,
+    /** Full radial arc menu expanded for categorization */
+    ARC_EXPANDED,
+    /** After category selected — arc collapses, undo notification at corner */
+    UNDO_NOTIFICATION
+}
 
 @Composable
 fun FloatingOverlayView(
@@ -136,19 +137,21 @@ fun FloatingOverlayView(
     // Active design style
     var currentArcStyle by remember { mutableStateOf(settings.arcDesignStyle) }
 
-    // UI state
-    var isExpanded by remember { mutableStateOf(settings.autoExpandOnCapture) }
-    var isOverflowExpanded by remember { mutableStateOf(false) }
+    // ─── Overlay phase state ──────────────────────────────────────────────────
+    var phase by remember { mutableStateOf(if (settings.autoExpandOnCapture) OverlayPhase.ARC_EXPANDED else OverlayPhase.BUBBLE) }
+    var successCategory by remember { mutableStateOf<CategoryUiModel?>(null) }
     var isDismissing by remember { mutableStateOf(false) }
     var isDeleting by remember { mutableStateOf(false) }
-    var successCategory by remember { mutableStateOf<CategoryUiModel?>(null) }
-    var showUndoSnackbar by remember { mutableStateOf(false) }
+    var isOverflowExpanded by remember { mutableStateOf(false) }
     var hoveredCategory by remember { mutableStateOf<CategoryUiModel?>(null) }
     var isDeleteHovered by remember { mutableStateOf(false) }
     var isShareHovered by remember { mutableStateOf(false) }
     var isMoreHovered by remember { mutableStateOf(false) }
 
-    // Drag offset & snapping
+    val isExpanded = phase == OverlayPhase.ARC_EXPANDED
+    val showUndoNotification = phase == OverlayPhase.UNDO_NOTIFICATION
+
+    // Drag offset & snapping (only active in ARC_EXPANDED phase)
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
     var isDragging by remember { mutableStateOf(false) }
@@ -177,12 +180,12 @@ fun FloatingOverlayView(
     val arcRadiusPx = with(density) { arcRadius.toPx() }
     val hitThresholdPx = with(density) { 56.dp.toPx() }
 
-    // Auto-dismiss countdown timer
+    // Auto-dismiss countdown (only in BUBBLE and ARC_EXPANDED phases)
     var remainingSeconds by remember { mutableStateOf(settings.autoDismissSeconds) }
     var timerProgress by remember { mutableFloatStateOf(1.0f) }
 
-    LaunchedEffect(isDragging, isDismissing, successCategory, isDeleting, showUndoSnackbar) {
-        if (isDragging || isDismissing || successCategory != null || isDeleting || showUndoSnackbar) return@LaunchedEffect
+    LaunchedEffect(isDragging, isDismissing, successCategory, isDeleting, showUndoNotification) {
+        if (isDragging || isDismissing || successCategory != null || isDeleting || showUndoNotification) return@LaunchedEffect
         val totalMillis = settings.autoDismissSeconds * 1000L
         val interval = 50L
         var elapsed = 0L
@@ -199,13 +202,12 @@ fun FloatingOverlayView(
         onDismiss()
     }
 
-    // Exit animation wrapper (~200-300ms)
+    // Exit animation
     val exitScale by animateFloatAsState(
         targetValue = if (isDismissing) 0.0f else if (isDeleting) 0.1f else 1.0f,
         animationSpec = tween(260, easing = FastOutSlowInEasing),
         label = "ExitScale"
     )
-
     val exitAlpha by animateFloatAsState(
         targetValue = if (isDismissing || isDeleting) 0.0f else 1.0f,
         animationSpec = tween(220, easing = LinearEasing),
@@ -252,28 +254,30 @@ fun FloatingOverlayView(
             val screenWidth = maxWidth
             val screenHeight = maxHeight
 
-            // Backdrop tap to dismiss
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        if (!isDismissing && !isDeleting && !showUndoSnackbar) {
-                            coroutineScope.launch {
-                                isDismissing = true
-                                delay(220)
-                                onDismiss()
+            // ─── Phase: BUBBLE — small corner circle, non-blocking ────────────
+            // The backdrop only blocks when arc is expanded (needs tap-to-dismiss)
+            if (isExpanded) {
+                // Semi-transparent scrim only when arc is open
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.35f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            if (!isDismissing && !isDeleting && !showUndoNotification) {
+                                // Collapse arc back to bubble
+                                phase = OverlayPhase.BUBBLE
                             }
                         }
-                    }
-            )
+                )
+            }
 
-            // Category targets layout
+            // ─── Arc Category Menu (only visible in ARC_EXPANDED) ────────────
             ArcMenuLayout(
                 categories = orderedCategories,
-                isExpanded = isExpanded && !showUndoSnackbar,
+                isExpanded = isExpanded && !showUndoNotification,
                 radiusDp = arcRadius,
                 dragOffsetPx = Offset(animatedDragX, animatedDragY),
                 paletteColors = screenshot.paletteColors,
@@ -286,17 +290,17 @@ fun FloatingOverlayView(
                 suggestedCategoryId = suggestedCategoryId,
                 arcDesignStyle = currentArcStyle,
                 onCategoryClick = { category ->
-                    if (isDismissing || isDeleting || showUndoSnackbar) return@ArcMenuLayout
+                    if (isDismissing || isDeleting || showUndoNotification) return@ArcMenuLayout
                     successCategory = category
                     triggerHapticFeedback(context, HapticType.DROP)
                     coroutineScope.launch {
                         delay(300)
                         onMoveToCategory(category)
-                        showUndoSnackbar = true
+                        phase = OverlayPhase.UNDO_NOTIFICATION
                     }
                 },
                 onDeleteClick = {
-                    if (isDismissing || isDeleting || showUndoSnackbar) return@ArcMenuLayout
+                    if (isDismissing || isDeleting || showUndoNotification) return@ArcMenuLayout
                     isDeleting = true
                     triggerHapticFeedback(context, HapticType.DROP)
                     coroutineScope.launch {
@@ -308,7 +312,7 @@ fun FloatingOverlayView(
                     }
                 },
                 onShareClick = {
-                    if (isDismissing || isDeleting || showUndoSnackbar) return@ArcMenuLayout
+                    if (isDismissing || isDeleting || showUndoNotification) return@ArcMenuLayout
                     triggerHapticFeedback(context, HapticType.DROP)
                     coroutineScope.launch {
                         delay(150)
@@ -324,14 +328,13 @@ fun FloatingOverlayView(
                 }
             )
 
-            // Central Bubble & Drag Item
+            // ─── Central Bubble & Drag Item ───────────────────────────────────
             val bubbleElevation by animateDpAsState(
-                targetValue = if (isDragging) 16.dp else 6.dp,
+                targetValue = if (isDragging) 16.dp else 8.dp,
                 animationSpec = tween(150),
                 label = "BubbleElevation"
             )
 
-            // Shrink on drag over target pod for intuitive snapping feedback
             val thumbnailDragScale by animateFloatAsState(
                 targetValue = if (hoveredCategory != null || isDeleteHovered || isShareHovered) 0.68f else 1.0f,
                 animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
@@ -356,88 +359,127 @@ fun FloatingOverlayView(
                 label = "BubbleBorderColor"
             )
 
-            if (!showUndoSnackbar) {
+            // Corner offset for the bubble: bottom-right corner when in BUBBLE/UNDO phase
+            val isBubblePhase = !isExpanded && !showUndoNotification
+            val cornerOffsetX = with(density) {
+                if (isExpanded) 0f
+                else (screenWidth / 2 - bubbleSize / 2 - 20.dp).toPx()
+            }
+            val cornerOffsetY = with(density) {
+                if (isExpanded) 0f
+                else (screenHeight / 2 - bubbleSize / 2 - 80.dp).toPx()
+            }
+            val bubbleTargetX by animateFloatAsState(
+                targetValue = cornerOffsetX,
+                animationSpec = spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMediumLow),
+                label = "BubbleX"
+            )
+            val bubbleTargetY by animateFloatAsState(
+                targetValue = cornerOffsetY,
+                animationSpec = spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMediumLow),
+                label = "BubbleY"
+            )
+
+            // Only show the main bubble if NOT in undo notification phase
+            if (!showUndoNotification) {
                 Box(
                     modifier = Modifier
                         .offset {
-                            IntOffset(animatedDragX.roundToInt(), animatedDragY.roundToInt())
+                            val baseX = if (isExpanded) animatedDragX.roundToInt() else bubbleTargetX.roundToInt()
+                            val baseY = if (isExpanded) animatedDragY.roundToInt() else bubbleTargetY.roundToInt()
+                            IntOffset(baseX, baseY)
                         }
-                        .scale(if (!isExpanded && !isDragging) pulseGlow else thumbnailDragScale)
-                        .pointerInput(Unit) {
-                            detectDragGestures(
-                                onDragStart = {
-                                    isDragging = true
-                                    isExpanded = true
-                                    triggerHapticFeedback(context, HapticType.ENTER)
-                                },
-                                onDrag = { change, dragAmount ->
-                                    change.consume()
-                                    dragOffsetX += dragAmount.x
-                                    dragOffsetY += dragAmount.y
+                        .scale(
+                            when {
+                                isBubblePhase && !isDragging -> pulseGlow
+                                else -> thumbnailDragScale
+                            }
+                        )
+                        .pointerInput(isExpanded) {
+                            if (isExpanded) {
+                                detectDragGestures(
+                                    onDragStart = {
+                                        isDragging = true
+                                        triggerHapticFeedback(context, HapticType.ENTER)
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        dragOffsetX += dragAmount.x
+                                        dragOffsetY += dragAmount.y
 
-                                    val hoverTarget = RadialMenuGeometry.findHoverTarget(
-                                        Offset(dragOffsetX, dragOffsetY),
-                                        radialLayout,
-                                        hitThresholdPx
-                                    )
+                                        val hoverTarget = RadialMenuGeometry.findHoverTarget(
+                                            Offset(dragOffsetX, dragOffsetY),
+                                            radialLayout,
+                                            hitThresholdPx
+                                        )
 
-                                    val newHoveredCat = (hoverTarget as? HoverTarget.Category)?.category
-                                    val newIsDelete = hoverTarget is HoverTarget.Delete
-                                    val newIsShare = hoverTarget is HoverTarget.Share
-                                    val newIsMore = hoverTarget is HoverTarget.More
+                                        val newHoveredCat = (hoverTarget as? HoverTarget.Category)?.category
+                                        val newIsDelete = hoverTarget is HoverTarget.Delete
+                                        val newIsShare = hoverTarget is HoverTarget.Share
+                                        val newIsMore = hoverTarget is HoverTarget.More
 
-                                    if (newIsDelete != isDeleteHovered) {
-                                        isDeleteHovered = newIsDelete
-                                        if (newIsDelete) triggerHapticFeedback(context, HapticType.WARNING)
-                                    }
-                                    if (newIsShare != isShareHovered) {
-                                        isShareHovered = newIsShare
-                                        if (newIsShare) triggerHapticFeedback(context, HapticType.ENTER)
-                                    }
-                                    if (newIsMore != isMoreHovered) {
-                                        isMoreHovered = newIsMore
-                                        if (newIsMore) {
-                                            triggerHapticFeedback(context, HapticType.ENTER)
-                                            isOverflowExpanded = true
+                                        if (newIsDelete != isDeleteHovered) {
+                                            isDeleteHovered = newIsDelete
+                                            if (newIsDelete) triggerHapticFeedback(context, HapticType.WARNING)
                                         }
-                                    }
-                                    if (newHoveredCat != hoveredCategory) {
-                                        if (newHoveredCat != null) triggerHapticFeedback(context, HapticType.ENTER)
-                                        else if (hoveredCategory != null) triggerHapticFeedback(context, HapticType.LEAVE)
-                                        hoveredCategory = newHoveredCat
-                                    }
-                                },
-                                onDragEnd = {
-                                    isDragging = false
-                                    if (isDeleteHovered) {
-                                        isDeleting = true
-                                        triggerHapticFeedback(context, HapticType.DROP)
-                                        coroutineScope.launch {
-                                            delay(350)
-                                            onDeleteScreenshot()
-                                            isDismissing = true
-                                            delay(200)
-                                            onDismiss()
+                                        if (newIsShare != isShareHovered) {
+                                            isShareHovered = newIsShare
+                                            if (newIsShare) triggerHapticFeedback(context, HapticType.ENTER)
                                         }
-                                    } else if (isShareHovered) {
-                                        triggerHapticFeedback(context, HapticType.DROP)
-                                        coroutineScope.launch {
-                                            delay(150)
-                                            onShareScreenshot()
-                                            isDismissing = true
-                                            delay(200)
-                                            onDismiss()
+                                        if (newIsMore != isMoreHovered) {
+                                            isMoreHovered = newIsMore
+                                            if (newIsMore) {
+                                                triggerHapticFeedback(context, HapticType.ENTER)
+                                                isOverflowExpanded = true
+                                            }
                                         }
-                                    } else if (hoveredCategory != null) {
-                                        val target = hoveredCategory!!
-                                        successCategory = target
-                                        triggerHapticFeedback(context, HapticType.DROP)
-                                        coroutineScope.launch {
-                                            delay(300)
-                                            onMoveToCategory(target)
-                                            showUndoSnackbar = true
+                                        if (newHoveredCat != hoveredCategory) {
+                                            if (newHoveredCat != null) triggerHapticFeedback(context, HapticType.ENTER)
+                                            else if (hoveredCategory != null) triggerHapticFeedback(context, HapticType.LEAVE)
+                                            hoveredCategory = newHoveredCat
                                         }
-                                    } else {
+                                    },
+                                    onDragEnd = {
+                                        isDragging = false
+                                        if (isDeleteHovered) {
+                                            isDeleting = true
+                                            triggerHapticFeedback(context, HapticType.DROP)
+                                            coroutineScope.launch {
+                                                delay(350)
+                                                onDeleteScreenshot()
+                                                isDismissing = true
+                                                delay(200)
+                                                onDismiss()
+                                            }
+                                        } else if (isShareHovered) {
+                                            triggerHapticFeedback(context, HapticType.DROP)
+                                            coroutineScope.launch {
+                                                delay(150)
+                                                onShareScreenshot()
+                                                isDismissing = true
+                                                delay(200)
+                                                onDismiss()
+                                            }
+                                        } else if (hoveredCategory != null) {
+                                            val target = hoveredCategory!!
+                                            successCategory = target
+                                            triggerHapticFeedback(context, HapticType.DROP)
+                                            coroutineScope.launch {
+                                                delay(300)
+                                                onMoveToCategory(target)
+                                                phase = OverlayPhase.UNDO_NOTIFICATION
+                                            }
+                                        } else {
+                                            dragOffsetX = 0f
+                                            dragOffsetY = 0f
+                                            hoveredCategory = null
+                                            isDeleteHovered = false
+                                            isShareHovered = false
+                                            isMoreHovered = false
+                                        }
+                                    },
+                                    onDragCancel = {
+                                        isDragging = false
                                         dragOffsetX = 0f
                                         dragOffsetY = 0f
                                         hoveredCategory = null
@@ -445,21 +487,12 @@ fun FloatingOverlayView(
                                         isShareHovered = false
                                         isMoreHovered = false
                                     }
-                                },
-                                onDragCancel = {
-                                    isDragging = false
-                                    dragOffsetX = 0f
-                                    dragOffsetY = 0f
-                                    hoveredCategory = null
-                                    isDeleteHovered = false
-                                    isShareHovered = false
-                                    isMoreHovered = false
-                                }
-                            )
+                                )
+                            }
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    // Auto-dismiss circular timer ring
+                    // Auto-dismiss circular timer ring (only in non-drag states)
                     if (!isDragging && successCategory == null && !isDeleting) {
                         CircularProgressIndicator(
                             progress = { timerProgress },
@@ -476,11 +509,24 @@ fun FloatingOverlayView(
                             .size(bubbleSize)
                             .clip(CircleShape)
                             .clickable {
-                                isExpanded = !isExpanded
-                                triggerHapticFeedback(context, HapticType.ENTER)
+                                if (!isDismissing && !isDeleting) {
+                                    if (phase == OverlayPhase.BUBBLE) {
+                                        // Expand arc
+                                        phase = OverlayPhase.ARC_EXPANDED
+                                        dragOffsetX = 0f
+                                        dragOffsetY = 0f
+                                    } else {
+                                        // Collapse arc back to bubble
+                                        phase = OverlayPhase.BUBBLE
+                                    }
+                                    triggerHapticFeedback(context, HapticType.ENTER)
+                                }
                             }
                             .semantics {
-                                contentDescription = "Screenshot preview thumbnail bubble, tap to expand or drag to categorize"
+                                contentDescription = if (phase == OverlayPhase.BUBBLE)
+                                    "Screenshot thumbnail — tap to open arc menu"
+                                else
+                                    "Screenshot thumbnail — tap to collapse arc menu"
                             },
                         shape = CircleShape,
                         shadowElevation = bubbleElevation,
@@ -561,7 +607,7 @@ fun FloatingOverlayView(
                                 }
                             }
 
-                            // Drag Handle hint
+                            // Drag Handle hint — only when arc is open and idle
                             if (isExpanded && !isDragging && successCategory == null && !isDeleting) {
                                 Box(
                                     modifier = Modifier
@@ -577,10 +623,27 @@ fun FloatingOverlayView(
                                     )
                                 }
                             }
+
+                            // Tap-to-open hint — only in BUBBLE phase
+                            if (phase == OverlayPhase.BUBBLE && !isDragging && successCategory == null && !isDeleting) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color.Black.copy(alpha = 0.18f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.TouchApp,
+                                        contentDescription = "Tap to open",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
                         }
                     }
 
-                    // Quick dismiss 'X' button
+                    // Quick dismiss 'X' button — only when arc is expanded
                     if (isExpanded && !isDragging && successCategory == null && !isDeleting) {
                         Surface(
                             modifier = Modifier
@@ -611,82 +674,8 @@ fun FloatingOverlayView(
                 }
             }
 
-            // Clear UNDO Snackbar after move
-            AnimatedVisibility(
-                visible = showUndoSnackbar && successCategory != null,
-                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 24.dp, start = 16.dp, end = 16.dp)
-            ) {
-                var undoTimerSec by remember { mutableStateOf(4) }
-                LaunchedEffect(showUndoSnackbar) {
-                    while (undoTimerSec > 0) {
-                        delay(1000)
-                        undoTimerSec--
-                    }
-                    isDismissing = true
-                    delay(200)
-                    onDismiss()
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.inverseSurface,
-                    shadowElevation = 10.dp,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = Color(0xFF4CAF50),
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "Moved to ${successCategory?.name}",
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.inverseOnSurface
-                                )
-                                Text(
-                                    text = "Auto-closing in ${undoTimerSec}s",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.inverseOnSurface.copy(alpha = 0.7f)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.width(16.dp))
-
-                        TextButton(
-                            onClick = {
-                                successCategory?.let { onUndoMove?.invoke(it) }
-                                showUndoSnackbar = false
-                                successCategory = null
-                                triggerHapticFeedback(context, HapticType.DROP)
-                            },
-                            colors = ButtonDefaults.textButtonColors(
-                                contentColor = MaterialTheme.colorScheme.inversePrimary
-                            )
-                        ) {
-                            Icon(Icons.Default.Undo, contentDescription = "Undo", modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("UNDO", fontWeight = FontWeight.ExtraBold)
-                        }
-                    }
-                }
-            }
-
-            // Bottom Actions & Intuitive Arc Design Switcher
-            if (!showUndoSnackbar) {
+            // ─── Bottom Actions & Arc Switcher (only when arc is expanded) ───
+            if (isExpanded && !showUndoNotification) {
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -695,7 +684,7 @@ fun FloatingOverlayView(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     // Detected Smart Entities & Action Chips row
-                    if (entities.isNotEmpty() && isExpanded && !isDragging && successCategory == null && !isDeleting) {
+                    if (entities.isNotEmpty() && !isDragging && successCategory == null && !isDeleting) {
                         com.screenarc.app.ui.components.SmartEntityChipsRow(
                             entities = entities,
                             modifier = Modifier
@@ -704,8 +693,8 @@ fun FloatingOverlayView(
                         )
                     }
 
-                    // Interactive Arc Design Switcher Pill (Orbit ✦ | Fan ⌓ | Dial 🝯)
-                    if (isExpanded && !isDragging && successCategory == null && !isDeleting) {
+                    // Arc Design Switcher Pill
+                    if (!isDragging && successCategory == null && !isDeleting) {
                         Surface(
                             shape = RoundedCornerShape(18.dp),
                             color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f),
@@ -754,7 +743,7 @@ fun FloatingOverlayView(
 
                     // Drag instruction & Open Search shortcut
                     AnimatedVisibility(
-                        visible = isExpanded && !isDragging && successCategory == null && !isDeleting,
+                        visible = !isDragging && successCategory == null && !isDeleting,
                         enter = fadeIn(),
                         exit = fadeOut()
                     ) {
@@ -816,6 +805,84 @@ fun FloatingOverlayView(
                                     )
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+            // ─── Undo Notification (bottom corner, non-blocking) ──────────────
+            // Appears after categorization; user can still interact with the phone.
+            // The overlay window stays up but is FLAG_NOT_TOUCH_MODAL so touches
+            // outside this element pass through to apps underneath.
+            AnimatedVisibility(
+                visible = showUndoNotification && successCategory != null,
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp, start = 16.dp, end = 16.dp)
+            ) {
+                var undoTimerSec by remember { mutableStateOf(5) }
+                LaunchedEffect(showUndoNotification) {
+                    while (undoTimerSec > 0) {
+                        delay(1000)
+                        undoTimerSec--
+                    }
+                    isDismissing = true
+                    delay(200)
+                    onDismiss()
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.inverseSurface,
+                    shadowElevation = 10.dp,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = Color(0xFF4CAF50),
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Moved to ${successCategory?.name}",
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.inverseOnSurface
+                                )
+                                Text(
+                                    text = "Dismissing in ${undoTimerSec}s",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.inverseOnSurface.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        TextButton(
+                            onClick = {
+                                successCategory?.let { onUndoMove?.invoke(it) }
+                                // After undo, go back to BUBBLE phase
+                                successCategory = null
+                                phase = OverlayPhase.BUBBLE
+                                triggerHapticFeedback(context, HapticType.DROP)
+                            },
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.inversePrimary
+                            )
+                        ) {
+                            Icon(Icons.Default.Undo, contentDescription = "Undo", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("UNDO", fontWeight = FontWeight.ExtraBold)
                         }
                     }
                 }
