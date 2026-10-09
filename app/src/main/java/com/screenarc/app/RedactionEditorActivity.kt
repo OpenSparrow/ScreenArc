@@ -32,7 +32,9 @@ class RedactionEditorActivity : ComponentActivity() {
         }
         val uri = Uri.parse(uriString)
         val displayName = intent.getStringExtra(EXTRA_DISPLAY_NAME) ?: "Screenshot.png"
-        val isDeleteMode = intent.getStringExtra(EXTRA_MODE) == MODE_DELETE
+        val mode = intent.getStringExtra(EXTRA_MODE) ?: MODE_SHARE
+        val isDeleteMode = mode == MODE_DELETE
+        val isShareAndDeleteMode = mode == MODE_SHARE_AND_DELETE
 
         val container = (application as ScreenArcApplication).appContainer
         val screenshotUi = ScreenshotUiModel(
@@ -55,6 +57,7 @@ class RedactionEditorActivity : ComponentActivity() {
                     uri = uri,
                     displayName = displayName,
                     isDeleteMode = isDeleteMode,
+                    isShareAndDeleteMode = isShareAndDeleteMode,
                     language = settings.ocrLanguage,
                     ocrRepository = container.ocrRepository,
                     screenshot = screenshotUi,
@@ -68,6 +71,7 @@ class RedactionEditorActivity : ComponentActivity() {
     companion object {
         const val MODE_SHARE = "share"
         const val MODE_DELETE = "delete"
+        const val MODE_SHARE_AND_DELETE = "share_and_delete"
 
         const val EXTRA_URI = "extra_redaction_uri"
         const val EXTRA_DISPLAY_NAME = "extra_redaction_display_name"

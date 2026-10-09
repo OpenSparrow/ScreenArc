@@ -100,6 +100,7 @@ fun RedactionEditorScreen(
     uri: Uri,
     displayName: String,
     isDeleteMode: Boolean,
+    isShareAndDeleteMode: Boolean = false,
     language: OcrLanguage?,
     ocrRepository: OcrRepository,
     screenshot: ScreenshotUiModel,
@@ -643,12 +644,14 @@ fun RedactionEditorScreen(
                                             return@launch
                                         }
 
-                                        if (hasRedactions) {
+                                        if (hasRedactions || isShareAndDeleteMode) {
                                             val result = screenshotRepository.deleteScreenshot(screenshot)
                                             Toast.makeText(
                                                 context,
-                                                if (result.isSuccess) "Redacted copy shared — original deleted"
-                                                else "Shared, but could not delete original",
+                                                if (result.isSuccess) {
+                                                    if (hasRedactions) "Redacted copy shared — original deleted"
+                                                    else "Screenshot shared — original deleted"
+                                                } else "Shared, but could not delete original",
                                                 Toast.LENGTH_LONG
                                             ).show()
                                         } else {
@@ -698,8 +701,11 @@ fun RedactionEditorScreen(
                         Spacer(modifier = Modifier.height(6.dp))
 
                         Text(
-                            text = if (isDeleteMode) "OK deletes this screenshot"
-                            else "OK shares the redacted image, then deletes the original",
+                            text = when {
+                                isDeleteMode -> "OK deletes this screenshot"
+                                isShareAndDeleteMode -> "OK shares this screenshot, then deletes the original"
+                                else -> "OK shares the redacted image, then deletes the original"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = Color.White.copy(alpha = 0.6f)
                         )

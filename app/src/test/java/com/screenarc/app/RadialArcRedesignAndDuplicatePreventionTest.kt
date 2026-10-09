@@ -264,6 +264,55 @@ class RadialArcRedesignAndDuplicatePreventionTest {
         // Share target must be stationed above the bubble (negative y)
         assertNotNull(layout.sharePos)
         assertTrue("Share target y should be negative (above bubble) for bottom-right corner", layout.sharePos!!.y < 0)
+
+        // Share & Delete target must be stationed in inner arc between share and delete
+        assertNotNull(layout.shareAndDeletePos)
+        assertTrue("Share & Delete target x should be negative", layout.shareAndDeletePos!!.x < 0)
+        assertTrue("Share & Delete target y should be negative", layout.shareAndDeletePos!!.y < 0)
+
+        // Copy target must be stationed in inner arc
+        assertNotNull(layout.copyPos)
+        assertTrue("Copy target y should be negative", layout.copyPos!!.y < 0)
+
+        // Inner and outer radii should reflect 2-layer geometry
+        assertTrue("Outer radius should be larger than inner radius", layout.outerRadiusPx > layout.innerRadiusPx)
+    }
+
+    @Test
+    fun testTwoLayerRadialMenuGeometryAndActions() {
+        val categories = listOf(
+            CategoryUiModel(1L, "Receipts", "Receipts"),
+            CategoryUiModel(2L, "Work", "Work"),
+            CategoryUiModel(3L, "Social", "Social")
+        )
+        val radiusPx = 300f
+        val layout = RadialMenuGeometry.calculateLayout(
+            categories = categories,
+            radiusPx = radiusPx,
+            edgeAnchor = OverlayEdgeAnchor.BOTTOM_RIGHT
+        )
+
+        // Layer 1 (Inner Arc): Actions
+        assertNotNull("Copy position must be calculated", layout.copyPos)
+        assertNotNull("Share position must be calculated", layout.sharePos)
+        assertNotNull("Share & Delete position must be calculated", layout.shareAndDeletePos)
+        assertNotNull("Delete position must be calculated", layout.deletePos)
+
+        // Layer 2 (Outer Arc): Overlapping Category Capsules
+        assertEquals(3, layout.categoriesWithPos.size)
+
+        // Verify hit-testing for Layer 1 actions
+        val copyHit = RadialMenuGeometry.findHoverTarget(layout.copyPos!!, layout, 40f)
+        assertEquals(HoverTarget.Copy, copyHit)
+
+        val shareAndDelHit = RadialMenuGeometry.findHoverTarget(layout.shareAndDeletePos!!, layout, 40f)
+        assertEquals(HoverTarget.ShareAndDelete, shareAndDelHit)
+
+        val shareHit = RadialMenuGeometry.findHoverTarget(layout.sharePos!!, layout, 40f)
+        assertEquals(HoverTarget.Share, shareHit)
+
+        val deleteHit = RadialMenuGeometry.findHoverTarget(layout.deletePos, layout, 40f)
+        assertEquals(HoverTarget.Delete, deleteHit)
     }
 
     @Test

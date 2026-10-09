@@ -7,12 +7,18 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -36,11 +42,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Compare
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -55,6 +65,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -64,13 +75,16 @@ import com.screenarc.app.ui.theme.LocalIsGlassmorphic
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import com.screenarc.app.ui.dialog.DuplicateReviewDialog
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -146,16 +160,27 @@ fun HomeScreen(
     var duplicateGroups by remember { mutableStateOf<List<com.screenarc.app.util.DuplicateGroup>>(emptyList()) }
     var isScanningDuplicates by remember { mutableStateOf(false) }
     var showTrashConfirmationGroup by remember { mutableStateOf<com.screenarc.app.util.DuplicateGroup?>(null) }
+    var showTrashAllConfirmation by remember { mutableStateOf(false) }
+    var showDuplicateReviewDialog by remember { mutableStateOf(false) }
+    var duplicatesExpanded by rememberSaveable { mutableStateOf(true) }
+    val duplicateArrowRotation by animateFloatAsState(
+        targetValue = if (duplicatesExpanded) 180f else 0f,
+        animationSpec = tween(260),
+        label = "DuplicateArrow"
+    )
     val scope = androidx.compose.runtime.rememberCoroutineScope()
 
-    LaunchedEffect(screenshotRepo) {
-        if (screenshotRepo != null) {
+    LaunchedEffect(screenshotRepo, settings.duplicateFinderEnabled) {
+        if (screenshotRepo != null && settings.duplicateFinderEnabled) {
             isScanningDuplicates = true
             screenshotRepo.getAllScreenshotsFlow().collect { allItems ->
                 val uiModels = allItems.map { it.toUiModel() }
                 duplicateGroups = com.screenarc.app.util.DuplicateDetector.findDuplicates(context, uiModels)
                 isScanningDuplicates = false
             }
+        } else {
+            duplicateGroups = emptyList()
+            isScanningDuplicates = false
         }
     }
 
@@ -286,7 +311,7 @@ fun HomeScreen(
         }
 
         // Clean Duplicates Card
-        if (duplicateGroups.isNotEmpty()) {
+        if (settings.duplicateFinderEnabled && duplicateGroups.isNotEmpty()) {
             item {
                 GlassElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -298,7 +323,10 @@ fun HomeScreen(
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { duplicatesExpanded = !duplicatesExpanded },
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -316,73 +344,159 @@ fun HomeScreen(
                                     color = MaterialTheme.colorScheme.onSecondaryContainer
                                 )
                             }
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primary
-                            ) {
-                                Text(
-                                    text = "${duplicateGroups.sumOf { it.duplicates.size }} duplicates",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.primary
+                                ) {
+                                    Text(
+                                        text = "${duplicateGroups.sumOf { it.duplicates.size }} duplicates",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = if (duplicatesExpanded) "Collapse" else "Expand",
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .rotate(duplicateArrowRotation)
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                        AnimatedVisibility(
+                            visible = duplicatesExpanded,
+                            enter = expandVertically(animationSpec = tween(220)) + fadeIn(animationSpec = tween(180)),
+                            exit = shrinkVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(140))
+                        ) {
+                            Column {
+                                Spacer(modifier = Modifier.height(12.dp))
 
-                        Text(
-                            text = "Found ${duplicateGroups.size} group(s) of near-duplicate screenshots taken within 5 minutes.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
-                        )
+                                Text(
+                                    text = "Found ${duplicateGroups.size} group(s) of near-duplicate screenshots taken within 5 minutes.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
+                                )
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                                Spacer(modifier = Modifier.height(14.dp))
 
-                        duplicateGroups.forEachIndexed { index, group ->
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = MaterialTheme.colorScheme.surface,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                            ) {
-                                Column(modifier = Modifier.padding(14.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
+                                // The 2 Primary Action Buttons:
+                                // 1. Proceed Deleting (Keep Best)
+                                // 2. Review & Decide (Side-by-side comparison window)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Button(
+                                        onClick = { showTrashAllConfirmation = true },
+                                        shape = RoundedCornerShape(14.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MaterialTheme.colorScheme.error,
+                                            contentColor = MaterialTheme.colorScheme.onError
+                                        ),
+                                        modifier = Modifier.weight(1f)
                                     ) {
-                                        Text(
-                                            text = "Group ${index + 1}: ${group.similarityReason}",
-                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                            color = MaterialTheme.colorScheme.onSurface
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteSweep,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
                                         )
+                                        Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = "Keeping: ${group.primary.displayName}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.primary,
+                                            text = "Keep Best & Delete",
+                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                                             maxLines = 1
                                         )
                                     }
 
-                                    Spacer(modifier = Modifier.height(6.dp))
-
-                                    Text(
-                                        text = "${group.duplicates.size} redundant copy to trash (${group.duplicates.joinToString { it.displayName }})",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 2
-                                    )
-
-                                    Spacer(modifier = Modifier.height(10.dp))
-
                                     FilledTonalButton(
-                                        onClick = { showTrashConfirmationGroup = group },
-                                        shape = RoundedCornerShape(12.dp),
-                                        modifier = Modifier.align(Alignment.End)
+                                        onClick = { showDuplicateReviewDialog = true },
+                                        shape = RoundedCornerShape(14.dp),
+                                        colors = ButtonDefaults.filledTonalButtonColors(
+                                            containerColor = MaterialTheme.colorScheme.primary,
+                                            contentColor = MaterialTheme.colorScheme.onPrimary
+                                        ),
+                                        modifier = Modifier.weight(1f)
                                     ) {
-                                        Text("Keep Best, Trash Rest")
+                                        Icon(
+                                            imageVector = Icons.Default.Compare,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Review & Decide",
+                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                duplicateGroups.forEachIndexed { index, group ->
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = MaterialTheme.colorScheme.surface,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp)
+                                    ) {
+                                        Column(modifier = Modifier.padding(14.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "Group ${index + 1}: ${group.similarityReason}",
+                                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Text(
+                                                    text = "Keeping: ${group.primary.displayName}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    maxLines = 1
+                                                )
+                                            }
+
+                                            Spacer(modifier = Modifier.height(6.dp))
+
+                                            Text(
+                                                text = "${group.duplicates.size} redundant copy to trash (${group.duplicates.joinToString { it.displayName }})",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 2
+                                            )
+
+                                            Spacer(modifier = Modifier.height(10.dp))
+
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.End,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                TextButton(
+                                                    onClick = { showDuplicateReviewDialog = true }
+                                                ) {
+                                                    Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("Inspect", style = MaterialTheme.typography.labelSmall)
+                                                }
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                FilledTonalButton(
+                                                    onClick = { showTrashConfirmationGroup = group },
+                                                    shape = RoundedCornerShape(12.dp)
+                                                ) {
+                                                    Text("Keep Best, Trash Group")
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -709,7 +823,7 @@ fun HomeScreen(
         }
     }
 
-    // Confirmation dialog for Keep best, Trash rest
+    // Confirmation dialog for Keep best, Trash rest (single group)
     showTrashConfirmationGroup?.let { group ->
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showTrashConfirmationGroup = null },
@@ -744,6 +858,63 @@ fun HomeScreen(
                     onClick = { showTrashConfirmationGroup = null }
                 ) {
                     Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Confirmation dialog for Keep best, Delete rest (All groups)
+    if (showTrashAllConfirmation && duplicateGroups.isNotEmpty()) {
+        val totalToDelete = duplicateGroups.sumOf { it.duplicates.size }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showTrashAllConfirmation = false },
+            title = {
+                Text("Delete $totalToDelete Duplicate(s)?")
+            },
+            text = {
+                Text(
+                    "You will keep the best screenshot from each of the ${duplicateGroups.size} group(s). The remaining $totalToDelete redundant screenshot(s) will be deleted."
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.Button(
+                    onClick = {
+                        val allDuplicates = duplicateGroups.flatMap { it.duplicates }
+                        showTrashAllConfirmation = false
+                        if (screenshotRepo != null) {
+                            scope.launch {
+                                screenshotRepo.deleteBatch(allDuplicates)
+                            }
+                        }
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Delete All Duplicates")
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = { showTrashAllConfirmation = false }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Side-by-side Duplicate Review & Comparison Window
+    if (showDuplicateReviewDialog && duplicateGroups.isNotEmpty()) {
+        DuplicateReviewDialog(
+            duplicateGroups = duplicateGroups,
+            onDismiss = { showDuplicateReviewDialog = false },
+            onDeleteScreenshots = { toDelete ->
+                showDuplicateReviewDialog = false
+                if (screenshotRepo != null && toDelete.isNotEmpty()) {
+                    scope.launch {
+                        screenshotRepo.deleteBatch(toDelete)
+                    }
                 }
             }
         )

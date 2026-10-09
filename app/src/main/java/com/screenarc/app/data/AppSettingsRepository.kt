@@ -27,7 +27,8 @@ data class AppSettings(
     val autoAssignRulesEnabled: Boolean = false,
     val autoArchiveDays: Int = 0, // 0 = Off, 30, 60, 90 days
     val themePreset: AppThemePreset = AppThemePreset.DYNAMIC_SYSTEM,
-    val uiDesignStyle: UiDesignStyle = UiDesignStyle.MATERIAL
+    val uiDesignStyle: UiDesignStyle = UiDesignStyle.MATERIAL,
+    val duplicateFinderEnabled: Boolean = true
 )
 
 class AppSettingsRepository(context: Context) {
@@ -92,7 +93,8 @@ class AppSettingsRepository(context: Context) {
             autoAssignRulesEnabled = if (autoOcr) autoRules else false,
             autoArchiveDays = prefs.getInt("auto_archive_days", 0),
             themePreset = themePreset,
-            uiDesignStyle = uiStyle
+            uiDesignStyle = uiStyle,
+            duplicateFinderEnabled = prefs.getBoolean("duplicate_finder_enabled", true)
         )
     }
 
@@ -120,6 +122,7 @@ class AppSettingsRepository(context: Context) {
             putInt("auto_archive_days", finalUpdated.autoArchiveDays)
             putString("theme_preset", finalUpdated.themePreset.id)
             putString("ui_design_style", finalUpdated.uiDesignStyle.name)
+            putBoolean("duplicate_finder_enabled", finalUpdated.duplicateFinderEnabled)
         }.apply()
         _settings.value = finalUpdated
     }

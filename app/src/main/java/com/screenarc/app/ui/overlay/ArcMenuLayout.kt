@@ -32,10 +32,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -47,10 +48,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
-import com.screenarc.app.ui.theme.LocalIsGlassmorphic
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -69,15 +68,19 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.screenarc.app.model.ArcDesignStyle
 import com.screenarc.app.model.CategoryUiModel
 import com.screenarc.app.model.DynamicPaletteColors
-import kotlin.math.PI
-import kotlin.math.cos
+import com.screenarc.app.ui.theme.LocalIsGlassmorphic
 import kotlin.math.roundToInt
-import kotlin.math.sin
 import kotlin.math.sqrt
 
+/**
+ * 2-Layer Radial Arc Overlay Menu:
+ * - Layer 1 (Inner Arc): Actions (Copy, Share, Share & Delete, Delete)
+ * - Layer 2 (Outer Arc): Overlapping Category assignment capsules with smooth bloom animation
+ */
 @Composable
 fun ArcMenuLayout(
     categories: List<CategoryUiModel>,
@@ -89,16 +92,20 @@ fun ArcMenuLayout(
     hoveredCategoryId: Long?,
     isDeleteHovered: Boolean,
     isShareHovered: Boolean,
+    isShareAndDeleteHovered: Boolean = false,
+    isCopyHovered: Boolean = false,
     isMoreHovered: Boolean = false,
     isOverflowExpanded: Boolean = false,
     suggestedCategoryId: Long? = null,
     handedness: Handedness = Handedness.AUTO,
     edgeAnchor: OverlayEdgeAnchor = OverlayEdgeAnchor.AUTO,
-    arcDesignStyle: ArcDesignStyle,
+    arcDesignStyle: ArcDesignStyle = ArcDesignStyle.ORBIT,
     anchorOffset: Offset = Offset.Zero,
     onCategoryClick: (CategoryUiModel) -> Unit,
     onDeleteClick: () -> Unit,
     onShareClick: () -> Unit,
+    onShareAndDeleteClick: () -> Unit = {},
+    onCopyClick: () -> Unit = {},
     onMoreClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -107,14 +114,23 @@ fun ArcMenuLayout(
     val isRtl = layoutDirection == LayoutDirection.Rtl
     val radiusPx = with(density) { radiusDp.toPx() }
 
-    // Spring open / close animation (~220-280ms)
-    val animatedProgress by animateFloatAsState(
+    // Staggered 2-Layer spring expansion animation
+    val layer1Progress by animateFloatAsState(
+        targetValue = if (isExpanded) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "Layer1ExpansionProgress"
+    )
+
+    val layer2Progress by animateFloatAsState(
         targetValue = if (isExpanded) 1f else 0f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessLow
         ),
-        label = "ArcExpansionProgress"
+        label = "Layer2ExpansionProgress"
     )
 
     val infiniteTransition = rememberInfiniteTransition(label = "SuggestedAndWarningPulse")
@@ -138,7 +154,7 @@ fun ArcMenuLayout(
         label = "SuggestedGlowPulse"
     )
 
-    if (animatedProgress > 0.01f) {
+    if (layer1Progress > 0.01f || layer2Progress > 0.01f) {
         val layout = remember(categories, radiusPx, arcDesignStyle, isRtl, handedness, edgeAnchor, suggestedCategoryId, isOverflowExpanded) {
             RadialMenuGeometry.calculateLayout(
                 categories = categories,
@@ -161,172 +177,64 @@ fun ArcMenuLayout(
             modifier = modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            // 1. Background Visual Guide Tracks & Connecting Energy Tethers
+            // 1. Concentric Radial Guide Tracks & Laser Tethers
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val centerOffset = Offset(size.width / 2f + anchorOffset.x, size.height / 2f + anchorOffset.y)
-                val currentRadius = radiusPx * animatedProgress
 
-                // A. Visual Arc Geometry Guides
-                when (arcDesignStyle) {
-                    ArcDesignStyle.ORBIT -> {
-                        // Inner and Outer Orbital Guide Rings
-                        drawCircle(
-                            color = primaryColor.copy(alpha = 0.08f * animatedProgress),
-                            radius = currentRadius * 0.65f,
-                            center = centerOffset,
-                            style = Stroke(
-                                width = 1.2.dp.toPx(),
-                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 16f))
-                            )
+                // Track Arc 1 (Inner Action Layer)
+                val track1Radius = (if (layout.innerRadiusPx > 0f) layout.innerRadiusPx else radiusPx * 0.6f) * layer1Progress
+                if (track1Radius > 10f) {
+                    drawCircle(
+                        color = primaryColor.copy(alpha = 0.10f * layer1Progress),
+                        radius = track1Radius,
+                        center = centerOffset,
+                        style = Stroke(
+                            width = 1.5.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 10f))
                         )
-                        drawCircle(
-                            color = (if (dynamicPaletteEnabled) paletteColors.vibrant else primaryColor).copy(
-                                alpha = 0.22f * animatedProgress
-                            ),
-                            radius = currentRadius,
-                            center = centerOffset,
-                            style = Stroke(
-                                width = 1.8.dp.toPx(),
-                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(16f, 12f))
-                            )
-                        )
-                        if (layout.isDualRing) {
-                            drawCircle(
-                                color = primaryColor.copy(alpha = 0.16f * animatedProgress),
-                                radius = currentRadius * 1.38f,
-                                center = centerOffset,
-                                style = Stroke(
-                                    width = 1.5.dp.toPx(),
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 14f))
-                                )
-                            )
-                        }
-
-                        // Subtle orbital tick markers
-                        val (tickStartDeg, tickSweepDeg) = when (edgeAnchor) {
-                            OverlayEdgeAnchor.BOTTOM_RIGHT -> Pair(-190, 110)
-                            OverlayEdgeAnchor.BOTTOM_LEFT -> Pair(-85, 110)
-                            OverlayEdgeAnchor.CENTER, OverlayEdgeAnchor.AUTO -> Pair(0, 360)
-                        }
-                        for (i in 0 until 12) {
-                            val tickAngle = (tickStartDeg + (i * (tickSweepDeg / 11f))) * (PI.toFloat() / 180f)
-                            val startP = centerOffset + Offset(
-                                (currentRadius - 5.dp.toPx()) * cos(tickAngle),
-                                (currentRadius - 5.dp.toPx()) * sin(tickAngle)
-                            )
-                            val endP = centerOffset + Offset(
-                                (currentRadius + 5.dp.toPx()) * cos(tickAngle),
-                                (currentRadius + 5.dp.toPx()) * sin(tickAngle)
-                            )
-                            drawLine(
-                                color = primaryColor.copy(alpha = 0.25f * animatedProgress),
-                                start = startP,
-                                end = endP,
-                                strokeWidth = 1.5.dp.toPx(),
-                                cap = StrokeCap.Round
-                            )
-                        }
-                    }
-
-                    ArcDesignStyle.FAN -> {
-                        // Glowing Fan Ribbon Track
-                        val (fanStart, fanSweep) = when (edgeAnchor) {
-                            OverlayEdgeAnchor.BOTTOM_RIGHT -> Pair(175f, 105f)
-                            OverlayEdgeAnchor.BOTTOM_LEFT -> Pair(265f, 105f)
-                            OverlayEdgeAnchor.CENTER, OverlayEdgeAnchor.AUTO -> Pair(180f, 180f)
-                        }
-                        drawArc(
-                            brush = Brush.sweepGradient(
-                                listOf(
-                                    primaryColor.copy(alpha = 0.05f),
-                                    (if (dynamicPaletteEnabled) paletteColors.vibrant else primaryColor).copy(alpha = 0.28f * animatedProgress),
-                                    primaryColor.copy(alpha = 0.05f)
-                                )
-                            ),
-                            startAngle = fanStart,
-                            sweepAngle = fanSweep,
-                            useCenter = false,
-                            topLeft = centerOffset - Offset(currentRadius, currentRadius),
-                            size = androidx.compose.ui.geometry.Size(currentRadius * 2, currentRadius * 2),
-                            style = Stroke(width = 18.dp.toPx(), cap = StrokeCap.Round)
-                        )
-                        if (layout.isDualRing) {
-                            drawArc(
-                                color = primaryColor.copy(alpha = 0.18f * animatedProgress),
-                                startAngle = fanStart,
-                                sweepAngle = fanSweep,
-                                useCenter = false,
-                                topLeft = centerOffset - Offset(currentRadius * 1.35f, currentRadius * 1.35f),
-                                size = androidx.compose.ui.geometry.Size(currentRadius * 2.7f, currentRadius * 2.7f),
-                                style = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Round)
-                            )
-                        }
-                        // Bottom Delete cradle arc
-                        drawArc(
-                            color = errorColor.copy(alpha = 0.25f * animatedProgress),
-                            startAngle = 60f,
-                            sweepAngle = 60f,
-                            useCenter = false,
-                            topLeft = centerOffset - Offset(currentRadius * 0.96f, currentRadius * 0.96f),
-                            size = androidx.compose.ui.geometry.Size(currentRadius * 1.92f, currentRadius * 1.92f),
-                            style = Stroke(
-                                width = 3.dp.toPx(),
-                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f)),
-                                cap = StrokeCap.Round
-                            )
-                        )
-                    }
-
-                    ArcDesignStyle.DIAL -> {
-                        // Tactile Dial with Radial Sector Dividers
-                        drawCircle(
-                            color = primaryColor.copy(alpha = 0.12f * animatedProgress),
-                            radius = currentRadius,
-                            center = centerOffset,
-                            style = Stroke(width = 2.dp.toPx())
-                        )
-                        drawArc(
-                            color = errorColor.copy(alpha = if (isDeleteHovered) 0.35f else 0.14f * animatedProgress),
-                            startAngle = 65f,
-                            sweepAngle = 50f,
-                            useCenter = true,
-                            topLeft = centerOffset - Offset(currentRadius, currentRadius),
-                            size = androidx.compose.ui.geometry.Size(currentRadius * 2, currentRadius * 2)
-                        )
-
-                        // Radiating dividing spokes
-                        layout.categoriesWithPos.forEach { (_, pos) ->
-                            val spokeEnd = centerOffset + pos * animatedProgress
-                            drawLine(
-                                color = outlineColor.copy(alpha = 0.15f * animatedProgress),
-                                start = centerOffset,
-                                end = spokeEnd,
-                                strokeWidth = 1.dp.toPx()
-                            )
-                        }
-                    }
+                    )
                 }
 
-                // B. Dynamic Connecting Laser / Energy Tether Beam from Dragged Item
+                // Track Arc 2 (Outer Categories Layer)
+                val track2Radius = (if (layout.outerRadiusPx > 0f) layout.outerRadiusPx else radiusPx * 1.15f) * layer2Progress
+                if (track2Radius > 10f) {
+                    drawCircle(
+                        color = (if (dynamicPaletteEnabled) paletteColors.vibrant else primaryColor).copy(
+                            alpha = 0.16f * layer2Progress
+                        ),
+                        radius = track2Radius,
+                        center = centerOffset,
+                        style = Stroke(
+                            width = 2.0.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 12f))
+                        )
+                    )
+                }
+
+                // Dynamic Laser Beam from Dragged Item to Active Target
                 val dragDistance = sqrt(dragOffsetPx.x * dragOffsetPx.x + dragOffsetPx.y * dragOffsetPx.y)
                 if (dragDistance > 12.dp.toPx()) {
                     val draggedScreenPoint = centerOffset + dragOffsetPx
 
                     val activeTargetPoint: Offset? = when {
-                        isDeleteHovered -> centerOffset + layout.deletePos * animatedProgress
-                        isShareHovered -> layout.sharePos?.let { centerOffset + it * animatedProgress }
-                        isMoreHovered -> layout.morePos?.let { centerOffset + it * animatedProgress }
+                        isDeleteHovered -> centerOffset + layout.deletePos * layer1Progress
+                        isShareAndDeleteHovered -> layout.shareAndDeletePos?.let { centerOffset + it * layer1Progress }
+                        isShareHovered -> layout.sharePos?.let { centerOffset + it * layer1Progress }
+                        isCopyHovered -> layout.copyPos?.let { centerOffset + it * layer1Progress }
+                        isMoreHovered -> layout.morePos?.let { centerOffset + it * layer2Progress }
                         hoveredCategoryId != null -> {
                             val hoveredPair = layout.categoriesWithPos.find { it.first.id == hoveredCategoryId }
-                            hoveredPair?.let { centerOffset + it.second * animatedProgress }
+                            hoveredPair?.let { centerOffset + it.second * layer2Progress }
                         }
                         else -> null
                     }
 
                     if (activeTargetPoint != null) {
                         val beamColor = when {
-                            isDeleteHovered -> Color(0xFFFF1744) // Warning crimson
-                            isShareHovered -> Color(0xFF29B6F6) // Cyan share beam
+                            isDeleteHovered -> Color(0xFFFF1744)
+                            isShareAndDeleteHovered -> Color(0xFFFF9100)
+                            isShareHovered -> Color(0xFF29B6F6)
+                            isCopyHovered -> Color(0xFF7C4DFF)
                             isMoreHovered -> primaryColor
                             else -> {
                                 val cat = layout.categoriesWithPos.find { it.first.id == hoveredCategoryId }?.first
@@ -334,7 +242,7 @@ fun ArcMenuLayout(
                             }
                         }
 
-                        // Wide glowing aura line
+                        // Wide glowing aura
                         drawLine(
                             color = beamColor.copy(alpha = 0.35f),
                             start = draggedScreenPoint,
@@ -342,7 +250,7 @@ fun ArcMenuLayout(
                             strokeWidth = 9.dp.toPx(),
                             cap = StrokeCap.Round
                         )
-                        // Core laser beam
+                        // Core laser
                         drawLine(
                             color = beamColor,
                             start = draggedScreenPoint,
@@ -364,19 +272,258 @@ fun ArcMenuLayout(
                 }
             }
 
-            // 2. Category Drop Target Pods
-            layout.categoriesWithPos.forEach { (category, baseOffset) ->
+            // ─── Layer 1 (Inner Arc): Actions (Copy, Share, Share & Delete, Delete) ───
+
+            // 1. COPY Action Pod
+            layout.copyPos?.let { cPos ->
+                val copyScale by animateFloatAsState(
+                    targetValue = if (isCopyHovered) 1.35f else 1.0f,
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                    label = "CopyScale"
+                )
+                val copyElevation by animateDpAsState(
+                    targetValue = if (isCopyHovered) 14.dp else 4.dp,
+                    label = "CopyElevation"
+                )
+                val cX = cPos.x * layer1Progress
+                val cY = cPos.y * layer1Progress
+
+                Surface(
+                    modifier = Modifier
+                        .offset { IntOffset((anchorOffset.x + cX).roundToInt(), (anchorOffset.y + cY).roundToInt()) }
+                        .scale(copyScale * layer1Progress)
+                        .shadow(copyElevation, shape = RoundedCornerShape(20.dp), clip = false)
+                        .clip(RoundedCornerShape(20.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onCopyClick
+                        )
+                        .zIndex(if (isCopyHovered) 30f else 10f),
+                    shape = RoundedCornerShape(20.dp),
+                    color = when {
+                        isCopyHovered -> Color(0xFF5E35B1)
+                        isGlass -> Color(0xFF281C45).copy(alpha = 0.75f)
+                        else -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.95f)
+                    },
+                    border = BorderStroke(
+                        width = if (isCopyHovered) 2.4.dp else 1.2.dp,
+                        color = if (isCopyHovered) Color.White else Color(0xFF7E57C2).copy(alpha = 0.7f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy screenshot to clipboard",
+                            tint = if (isCopyHovered) Color.White else MaterialTheme.colorScheme.onTertiaryContainer,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = "Copy",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.5.sp
+                            ),
+                            color = if (isCopyHovered) Color.White else MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
+            }
+
+            // 2. SHARE Action Pod
+            layout.sharePos?.let { sPos ->
+                val shareScale by animateFloatAsState(
+                    targetValue = if (isShareHovered) 1.35f else 1.0f,
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                    label = "ShareScale"
+                )
+                val shareElevation by animateDpAsState(
+                    targetValue = if (isShareHovered) 14.dp else 4.dp,
+                    label = "ShareElevation"
+                )
+                val sX = sPos.x * layer1Progress
+                val sY = sPos.y * layer1Progress
+
+                Surface(
+                    modifier = Modifier
+                        .offset { IntOffset((anchorOffset.x + sX).roundToInt(), (anchorOffset.y + sY).roundToInt()) }
+                        .scale(shareScale * layer1Progress)
+                        .shadow(shareElevation, shape = RoundedCornerShape(20.dp), clip = false)
+                        .clip(RoundedCornerShape(20.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onShareClick
+                        )
+                        .zIndex(if (isShareHovered) 30f else 10f),
+                    shape = RoundedCornerShape(20.dp),
+                    color = when {
+                        isShareHovered -> Color(0xFF0288D1)
+                        isGlass -> Color(0xFF132F4C).copy(alpha = 0.75f)
+                        else -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f)
+                    },
+                    border = BorderStroke(
+                        width = if (isShareHovered) 2.4.dp else 1.2.dp,
+                        color = if (isShareHovered) Color.White else Color(0xFF29B6F6).copy(alpha = 0.7f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Share screenshot",
+                            tint = if (isShareHovered) Color.White else MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = "Share",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.5.sp
+                            ),
+                            color = if (isShareHovered) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+            }
+
+            // 3. SHARE & DELETE Action Pod
+            layout.shareAndDeletePos?.let { sdPos ->
+                val sdScale by animateFloatAsState(
+                    targetValue = if (isShareAndDeleteHovered) 1.35f else 1.0f,
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                    label = "ShareAndDelScale"
+                )
+                val sdElevation by animateDpAsState(
+                    targetValue = if (isShareAndDeleteHovered) 14.dp else 4.dp,
+                    label = "ShareAndDelElevation"
+                )
+                val sdX = sdPos.x * layer1Progress
+                val sdY = sdPos.y * layer1Progress
+
+                Surface(
+                    modifier = Modifier
+                        .offset { IntOffset((anchorOffset.x + sdX).roundToInt(), (anchorOffset.y + sdY).roundToInt()) }
+                        .scale(sdScale * layer1Progress)
+                        .shadow(sdElevation, shape = RoundedCornerShape(20.dp), clip = false)
+                        .clip(RoundedCornerShape(20.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onShareAndDeleteClick
+                        )
+                        .zIndex(if (isShareAndDeleteHovered) 30f else 10f),
+                    shape = RoundedCornerShape(20.dp),
+                    color = when {
+                        isShareAndDeleteHovered -> Color(0xFFE65100)
+                        isGlass -> Color(0xFF3E2723).copy(alpha = 0.75f)
+                        else -> Color(0xFFFFE0B2).copy(alpha = 0.95f)
+                    },
+                    border = BorderStroke(
+                        width = if (isShareAndDeleteHovered) 2.4.dp else 1.2.dp,
+                        color = if (isShareAndDeleteHovered) Color.White else Color(0xFFFF9800).copy(alpha = 0.75f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteSweep,
+                            contentDescription = "Share and delete original screenshot",
+                            tint = if (isShareAndDeleteHovered) Color.White else Color(0xFFBF360C),
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = "Share & Del",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.5.sp
+                            ),
+                            color = if (isShareAndDeleteHovered) Color.White else Color(0xFFBF360C)
+                        )
+                    }
+                }
+            }
+
+            // 4. DELETE Action Pod
+            val delX = layout.deletePos.x * layer1Progress
+            val delY = layout.deletePos.y * layer1Progress
+            val delScale by animateFloatAsState(
+                targetValue = if (isDeleteHovered) 1.40f * deletePulseScale else 1.0f,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                label = "DelScale"
+            )
+            val delElevation by animateDpAsState(
+                targetValue = if (isDeleteHovered) 16.dp else 4.dp,
+                label = "DelElevation"
+            )
+
+            Surface(
+                modifier = Modifier
+                    .offset { IntOffset((anchorOffset.x + delX).roundToInt(), (anchorOffset.y + delY).roundToInt()) }
+                    .scale(delScale * layer1Progress)
+                    .shadow(delElevation, shape = RoundedCornerShape(20.dp), clip = false)
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onDeleteClick
+                    )
+                    .zIndex(if (isDeleteHovered) 30f else 10f),
+                shape = RoundedCornerShape(20.dp),
+                color = when {
+                    isDeleteHovered -> Color(0xFFE53935)
+                    isGlass -> Color(0xFF451515).copy(alpha = 0.75f)
+                    else -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.95f)
+                },
+                border = BorderStroke(
+                    width = if (isDeleteHovered) 2.6.dp else 1.2.dp,
+                    color = if (isDeleteHovered) Color.White else MaterialTheme.colorScheme.error.copy(alpha = 0.75f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete screenshot",
+                        tint = if (isDeleteHovered) Color.White else MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = "Delete",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.5.sp
+                        ),
+                        color = if (isDeleteHovered) Color.White else MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+
+            // ─── Layer 2 (Outer Arc): Overlapping Category Capsules ──────────────────
+
+            layout.categoriesWithPos.forEachIndexed { index, (category, baseOffset) ->
                 val isHovered = hoveredCategoryId == category.id
                 val isSuggested = layout.suggestedCategoryId == category.id
 
-                val extraDistance = if (isHovered) with(density) { 16.dp.toPx() } else 0f
-                val distanceMultiplier = (radiusPx + extraDistance) / radiusPx
-                val xPx = baseOffset.x * distanceMultiplier * animatedProgress
-                val yPx = baseOffset.y * distanceMultiplier * animatedProgress
+                val xPx = baseOffset.x * layer2Progress
+                val yPx = baseOffset.y * layer2Progress
 
                 val chipScale by animateFloatAsState(
                     targetValue = when {
-                        isHovered -> 1.45f
+                        isHovered -> 1.35f
                         isSuggested -> 1.08f * suggestedGlowPulse
                         else -> 1.0f
                     },
@@ -389,42 +536,31 @@ fun ArcMenuLayout(
 
                 val chipElevation by animateDpAsState(
                     targetValue = if (isHovered) 16.dp else if (isSuggested) 8.dp else 4.dp,
-                    animationSpec = tween(150),
                     label = "ChipElevation_${category.id}"
                 )
 
-                val targetContainerColor = when {
-                    isHovered -> {
-                        if (dynamicPaletteEnabled) paletteColors.vibrantLight else category.composeColor
-                    }
-                    isSuggested -> category.composeColor.copy(alpha = if (isGlass) 0.42f else 0.28f)
-                    isGlass -> Color(0xFF1E1730).copy(alpha = 0.58f)
-                    dynamicPaletteEnabled -> category.composeColor.copy(alpha = 0.24f)
-                    else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f)
-                }
-
                 val containerColor by animateColorAsState(
-                    targetValue = targetContainerColor,
-                    animationSpec = tween(180),
+                    targetValue = when {
+                        isHovered -> if (dynamicPaletteEnabled) paletteColors.vibrantLight else category.composeColor
+                        isSuggested -> category.composeColor.copy(alpha = if (isGlass) 0.65f else 0.45f)
+                        isGlass -> Color(0xFF1E1730).copy(alpha = 0.72f)
+                        dynamicPaletteEnabled -> category.composeColor.copy(alpha = 0.35f)
+                        else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f)
+                    },
                     label = "ContainerColor_${category.id}"
                 )
-
-                val contentColor = when {
-                    isHovered -> if (dynamicPaletteEnabled) paletteColors.vibrantDark else Color.White
-                    else -> MaterialTheme.colorScheme.onSurface
-                }
 
                 val targetBorderColor = when {
                     isHovered -> Color.White
                     isSuggested -> category.composeColor
                     isGlass -> Color.White.copy(alpha = 0.50f)
-                    else -> category.composeColor.copy(alpha = 0.65f)
+                    else -> category.composeColor.copy(alpha = 0.80f)
                 }
 
                 Surface(
                     modifier = Modifier
                         .offset { IntOffset((anchorOffset.x + xPx).roundToInt(), (anchorOffset.y + yPx).roundToInt()) }
-                        .scale(chipScale * animatedProgress)
+                        .scale(chipScale * layer2Progress)
                         .shadow(chipElevation, shape = RoundedCornerShape(22.dp), clip = false)
                         .clip(RoundedCornerShape(22.dp))
                         .clickable(
@@ -437,139 +573,91 @@ fun ArcMenuLayout(
                             if (isHovered || isSuggested) {
                                 drawCircle(
                                     brush = Brush.radialGradient(
-                                        colors = listOf(category.composeColor.copy(alpha = if (isHovered) 0.45f else 0.25f), Color.Transparent),
-                                        radius = size.maxDimension * 0.85f
+                                        colors = listOf(
+                                            category.composeColor.copy(alpha = if (isHovered) 0.5f else 0.3f),
+                                            Color.Transparent
+                                        ),
+                                        radius = size.maxDimension * 0.9f
                                     )
                                 )
                             }
                         }
-                        .drawWithContent {
-                            drawContent()
-                            if (isGlass) {
-                                drawRoundRect(
-                                    brush = Brush.verticalGradient(
-                                        colors = listOf(Color.White.copy(alpha = 0.35f), Color.Transparent),
-                                        startY = 0f,
-                                        endY = 12.dp.toPx()
-                                    ),
-                                    size = androidx.compose.ui.geometry.Size(size.width, 12.dp.toPx())
-                                )
-                            }
-                        }
+                        .zIndex(if (isHovered) 50f else if (isSuggested) 40f else (index + 1).toFloat())
                         .semantics {
-                            contentDescription = if (isHovered) {
-                                "${category.name} category highlighted, release to drop"
-                            } else if (isSuggested) {
-                                "${category.name} category, recommended suggestion"
-                            } else {
-                                "${category.name} category, drop target"
-                            }
+                            contentDescription = "${category.name} category"
                             stateDescription = if (isHovered) "Highlighted" else if (isSuggested) "Suggested" else "Available"
                         },
                     shape = RoundedCornerShape(22.dp),
                     color = containerColor,
                     border = BorderStroke(
-                        width = if (isHovered) 2.6.dp else if (isSuggested) 2.0.dp else 1.2.dp,
+                        width = if (isHovered) 2.6.dp else if (isSuggested) 2.0.dp else 1.3.dp,
                         color = targetBorderColor
                     )
                 ) {
-                    Column(
+                    Row(
                         modifier = Modifier
-                            .widthIn(max = 120.dp)
-                            .padding(horizontal = if (isHovered) 14.dp else 10.dp, vertical = 8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                            .widthIn(min = 105.dp, max = 135.dp)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Start
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
+                        Surface(
+                            shape = CircleShape,
+                            color = if (isHovered) Color.White else category.composeColor,
+                            modifier = Modifier.size(22.dp)
                         ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = if (isHovered) Color.White else category.composeColor,
-                                modifier = Modifier.size(20.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = category.getIcon(),
-                                        contentDescription = null,
-                                        tint = if (isHovered) category.composeColor else Color.White,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.width(6.dp))
-
-                            Text(
-                                text = category.name,
-                                style = MaterialTheme.typography.labelLarge.copy(
-                                    fontWeight = if (isHovered || isSuggested) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                    fontSize = if (isHovered) 13.5.sp else 12.sp
-                                ),
-                                color = contentColor,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-
-                            if (isSuggested && !isHovered) {
-                                Spacer(modifier = Modifier.width(4.dp))
+                            Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = "Suggested",
-                                    tint = category.composeColor,
-                                    modifier = Modifier.size(12.dp)
+                                    imageVector = category.getIcon(),
+                                    contentDescription = null,
+                                    tint = if (isHovered) category.composeColor else Color.White,
+                                    modifier = Modifier.size(13.dp)
                                 )
                             }
                         }
 
-                        if (isHovered) {
-                            Text(
-                                text = "Release to drop",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontSize = 8.sp,
-                                    fontWeight = FontWeight.Bold
-                                ),
-                                color = contentColor.copy(alpha = 0.9f),
-                                maxLines = 1
-                            )
-                        } else if (isSuggested) {
-                            Text(
-                                text = "Suggested",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontSize = 8.sp,
-                                    fontWeight = FontWeight.Bold
-                                ),
-                                color = category.composeColor,
-                                maxLines = 1
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Text(
+                            text = category.name,
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = if (isHovered || isSuggested) FontWeight.ExtraBold else FontWeight.Bold,
+                                fontSize = if (isHovered) 13.sp else 12.sp
+                            ),
+                            color = if (isHovered) (if (dynamicPaletteEnabled) paletteColors.vibrantDark else Color.White) else MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        if (isSuggested && !isHovered) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = "Suggested",
+                                tint = category.composeColor,
+                                modifier = Modifier.size(12.dp)
                             )
                         }
                     }
                 }
             }
 
-            // 3. Overflow "+ More" Node (When categories > 6)
+            // ─── Overflow "+ More" Node (When categories > 6) ────────────────────────
             layout.morePos?.let { mPos ->
                 val isHovered = isMoreHovered
-                val extraDistance = if (isHovered) with(density) { 16.dp.toPx() } else 0f
-                val distanceMultiplier = (radiusPx + extraDistance) / radiusPx
-                val xPx = mPos.x * distanceMultiplier * animatedProgress
-                val yPx = mPos.y * distanceMultiplier * animatedProgress
+                val xPx = mPos.x * layer2Progress
+                val yPx = mPos.y * layer2Progress
 
                 val moreScale by animateFloatAsState(
-                    targetValue = if (isHovered) 1.45f else 1.0f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessMedium
-                    ),
+                    targetValue = if (isHovered) 1.35f else 1.0f,
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
                     label = "MoreScale"
                 )
 
                 Surface(
                     modifier = Modifier
                         .offset { IntOffset((anchorOffset.x + xPx).roundToInt(), (anchorOffset.y + yPx).roundToInt()) }
-                        .scale(moreScale * animatedProgress)
+                        .scale(moreScale * layer2Progress)
                         .shadow(if (isHovered) 16.dp else 4.dp, shape = RoundedCornerShape(22.dp), clip = false)
                         .clip(RoundedCornerShape(22.dp))
                         .clickable(
@@ -577,28 +665,20 @@ fun ArcMenuLayout(
                             indication = null,
                             onClick = onMoreClick
                         )
-                        .semantics {
-                            contentDescription = "More categories, tap or hover to expand all ${layout.overflowCategories.size + 5} categories"
-                            stateDescription = if (isHovered) "Highlighted" else "Available"
-                        },
+                        .zIndex(if (isHovered) 50f else 35f),
                     color = when {
                         isHovered -> primaryColor
-                        isGlass -> Color(0xFF1E1730).copy(alpha = 0.58f)
+                        isGlass -> Color(0xFF1E1730).copy(alpha = 0.72f)
                         else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f)
                     },
                     border = BorderStroke(
                         width = if (isHovered) 2.5.dp else 1.2.dp,
-                        color = when {
-                            isHovered -> Color.White
-                            isGlass -> Color.White.copy(alpha = 0.50f)
-                            else -> primaryColor.copy(alpha = 0.65f)
-                        }
+                        color = if (isHovered) Color.White else primaryColor.copy(alpha = 0.65f)
                     )
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Surface(
                             shape = CircleShape,
@@ -620,249 +700,11 @@ fun ArcMenuLayout(
                         Text(
                             text = "+${layout.overflowCategories.size} More",
                             style = MaterialTheme.typography.labelLarge.copy(
-                                fontWeight = if (isHovered) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                fontSize = if (isHovered) 13.5.sp else 12.sp
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
                             ),
                             color = if (isHovered) Color.White else MaterialTheme.colorScheme.onSurface
                         )
-                    }
-                }
-            }
-
-            // 4. Intuitive DELETE Drop Target Pod
-            val deleteExtraDist = if (isDeleteHovered) with(density) { 18.dp.toPx() } else 0f
-            val deleteDistMult = (radiusPx + deleteExtraDist) / radiusPx
-            val delX = layout.deletePos.x * deleteDistMult * animatedProgress
-            val delY = layout.deletePos.y * deleteDistMult * animatedProgress
-
-            val deleteScale by animateFloatAsState(
-                targetValue = if (isDeleteHovered) 1.48f * deletePulseScale else 1.0f,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMedium
-                ),
-                label = "DeleteScale"
-            )
-
-            val deleteElevation by animateDpAsState(
-                targetValue = if (isDeleteHovered) 20.dp else 4.dp,
-                animationSpec = tween(150),
-                label = "DeleteElevation"
-            )
-
-            val deleteContainerColor by animateColorAsState(
-                targetValue = when {
-                    isDeleteHovered -> Color(0xFFE53935)
-                    isGlass -> Color(0xFF451515).copy(alpha = 0.60f)
-                    else -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.90f)
-                },
-                animationSpec = tween(180),
-                label = "DeleteContainerColor"
-            )
-
-            val deleteContentColor = if (isDeleteHovered) Color.White else if (isGlass) Color(0xFFFFB4AB) else MaterialTheme.colorScheme.onErrorContainer
-            val deleteBorderColor = when {
-                isDeleteHovered -> Color.White
-                isGlass -> Color(0xFFFFB4AB).copy(alpha = 0.50f)
-                else -> MaterialTheme.colorScheme.error.copy(alpha = 0.75f)
-            }
-
-            Surface(
-                modifier = Modifier
-                    .offset { IntOffset((anchorOffset.x + delX).roundToInt(), (anchorOffset.y + delY).roundToInt()) }
-                    .scale(deleteScale * animatedProgress)
-                    .shadow(deleteElevation, shape = RoundedCornerShape(22.dp), clip = false)
-                    .clip(RoundedCornerShape(22.dp))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onDeleteClick
-                    )
-                    .semantics {
-                        contentDescription = if (isDeleteHovered) {
-                            "Delete screenshot, release to delete"
-                        } else {
-                            "Delete screenshot, drop target"
-                        }
-                        stateDescription = if (isDeleteHovered) "Highlighted" else "Available"
-                    },
-                shape = RoundedCornerShape(22.dp),
-                color = deleteContainerColor,
-                border = BorderStroke(
-                    width = if (isDeleteHovered) 2.8.dp else 1.4.dp,
-                    color = deleteBorderColor
-                )
-            ) {
-                Column(
-                    modifier = Modifier
-                        .widthIn(max = 100.dp)
-                        .padding(horizontal = if (isDeleteHovered) 14.dp else 10.dp, vertical = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = if (isDeleteHovered) Color.White else MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(20.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = null,
-                                    tint = if (isDeleteHovered) Color(0xFFE53935) else Color.White,
-                                    modifier = Modifier.size(12.dp)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.width(6.dp))
-
-                        Text(
-                            text = "Delete",
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                fontWeight = if (isDeleteHovered) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                fontSize = if (isDeleteHovered) 13.5.sp else 12.sp
-                            ),
-                            color = deleteContentColor,
-                            maxLines = 1
-                        )
-                    }
-
-                    if (isDeleteHovered) {
-                        Text(
-                            text = "Release to Delete",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold
-                            ),
-                            color = Color.White.copy(alpha = 0.95f),
-                            maxLines = 1
-                        )
-                    }
-                }
-            }
-
-            // 5. Quick SHARE Drop Target Pod
-            layout.sharePos?.let { sPos ->
-                val shareExtraDist = if (isShareHovered) with(density) { 16.dp.toPx() } else 0f
-                val shareDistMult = (radiusPx + shareExtraDist) / radiusPx
-                val shX = sPos.x * shareDistMult * animatedProgress
-                val shY = sPos.y * shareDistMult * animatedProgress
-
-                val shareScale by animateFloatAsState(
-                    targetValue = if (isShareHovered) 1.45f else 1.0f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessMedium
-                    ),
-                    label = "ShareScale"
-                )
-
-                val shareElevation by animateDpAsState(
-                    targetValue = if (isShareHovered) 16.dp else 4.dp,
-                    animationSpec = tween(150),
-                    label = "ShareElevation"
-                )
-
-                val shareContainerColor by animateColorAsState(
-                    targetValue = when {
-                        isShareHovered -> primaryColor
-                        isGlass -> Color(0xFF1E1730).copy(alpha = 0.58f)
-                        else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f)
-                    },
-                    animationSpec = tween(180),
-                    label = "ShareContainerColor"
-                )
-
-                val shareContentColor = if (isShareHovered) Color.White else MaterialTheme.colorScheme.onSurface
-                val shareBorderColor = when {
-                    isShareHovered -> Color.White
-                    isGlass -> Color.White.copy(alpha = 0.50f)
-                    else -> primaryColor.copy(alpha = 0.5f)
-                }
-
-                Surface(
-                    modifier = Modifier
-                        .offset { IntOffset((anchorOffset.x + shX).roundToInt(), (anchorOffset.y + shY).roundToInt()) }
-                        .scale(shareScale * animatedProgress)
-                        .shadow(shareElevation, shape = RoundedCornerShape(22.dp), clip = false)
-                        .clip(RoundedCornerShape(22.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onShareClick
-                        )
-                        .semantics {
-                            contentDescription = if (isShareHovered) {
-                                "Share screenshot, release to share"
-                            } else {
-                                "Share screenshot, drop target"
-                            }
-                            stateDescription = if (isShareHovered) "Highlighted" else "Available"
-                        },
-                    shape = RoundedCornerShape(22.dp),
-                    color = shareContainerColor,
-                    border = BorderStroke(
-                        width = if (isShareHovered) 2.5.dp else 1.2.dp,
-                        color = shareBorderColor
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .widthIn(max = 100.dp)
-                            .padding(horizontal = if (isShareHovered) 14.dp else 10.dp, vertical = 8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = if (isShareHovered) Color.White else primaryColor,
-                                modifier = Modifier.size(20.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.Share,
-                                        contentDescription = null,
-                                        tint = if (isShareHovered) primaryColor else Color.White,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.width(6.dp))
-
-                            Text(
-                                text = "Share",
-                                style = MaterialTheme.typography.labelLarge.copy(
-                                    fontWeight = if (isShareHovered) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                    fontSize = if (isShareHovered) 13.5.sp else 12.sp
-                                ),
-                                color = shareContentColor,
-                                maxLines = 1
-                            )
-                        }
-
-                        if (isShareHovered) {
-                            Text(
-                                text = "Release to Share",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontSize = 8.sp,
-                                    fontWeight = FontWeight.Bold
-                                ),
-                                color = Color.White.copy(alpha = 0.9f),
-                                maxLines = 1
-                            )
-                        }
                     }
                 }
             }

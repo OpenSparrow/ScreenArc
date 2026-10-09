@@ -4,6 +4,8 @@ import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
@@ -425,6 +427,12 @@ class OverlayService : Service() {
                         onShareScreenshot = {
                             handleShareScreenshot(screenshot)
                         },
+                        onShareAndDeleteScreenshot = {
+                            handleShareAndDeleteScreenshot(screenshot)
+                        },
+                        onCopyScreenshot = {
+                            handleCopyScreenshot(screenshot)
+                        },
                         onDismiss = {
                             removeOverlayView(clearCurrentScreenshot = true)
                         },
@@ -523,6 +531,23 @@ class OverlayService : Service() {
 
     private fun handleShareScreenshot(screenshot: ScreenshotItem) {
         launchRedactionEditor(screenshot, RedactionEditorActivity.MODE_SHARE)
+    }
+
+    private fun handleShareAndDeleteScreenshot(screenshot: ScreenshotItem) {
+        launchRedactionEditor(screenshot, RedactionEditorActivity.MODE_SHARE_AND_DELETE)
+    }
+
+    private fun handleCopyScreenshot(screenshot: ScreenshotItem) {
+        try {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = ClipData.newUri(contentResolver, "Screenshot", screenshot.uri)
+            clipboard.setPrimaryClip(clip)
+            Toast.makeText(this, "Screenshot copied to clipboard", Toast.LENGTH_SHORT).show()
+            removeOverlayView(clearCurrentScreenshot = true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to copy screenshot to clipboard: ${e.message}", e)
+            Toast.makeText(this, "Failed to copy to clipboard", Toast.LENGTH_SHORT).show()
+        }
     }
 
     /**

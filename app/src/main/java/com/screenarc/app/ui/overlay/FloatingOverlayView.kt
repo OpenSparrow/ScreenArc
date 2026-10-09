@@ -119,6 +119,8 @@ fun FloatingOverlayView(
     onUndoMove: ((CategoryUiModel) -> Unit)? = null,
     onDeleteScreenshot: () -> Unit,
     onShareScreenshot: () -> Unit,
+    onShareAndDeleteScreenshot: () -> Unit = {},
+    onCopyScreenshot: () -> Unit = {},
     onDismiss: () -> Unit,
     onOpenSearch: () -> Unit,
     onStyleChanged: ((ArcDesignStyle) -> Unit)? = null,
@@ -152,6 +154,8 @@ fun FloatingOverlayView(
     var hoveredCategory by remember { mutableStateOf<CategoryUiModel?>(null) }
     var isDeleteHovered by remember { mutableStateOf(false) }
     var isShareHovered by remember { mutableStateOf(false) }
+    var isShareAndDeleteHovered by remember { mutableStateOf(false) }
+    var isCopyHovered by remember { mutableStateOf(false) }
     var isMoreHovered by remember { mutableStateOf(false) }
 
     val isExpanded = phase == OverlayPhase.ARC_EXPANDED
@@ -312,6 +316,8 @@ fun FloatingOverlayView(
                 hoveredCategoryId = hoveredCategory?.id,
                 isDeleteHovered = isDeleteHovered,
                 isShareHovered = isShareHovered,
+                isShareAndDeleteHovered = isShareAndDeleteHovered,
+                isCopyHovered = isCopyHovered,
                 isMoreHovered = isMoreHovered,
                 isOverflowExpanded = isOverflowExpanded,
                 suggestedCategoryId = suggestedCategoryId,
@@ -352,6 +358,29 @@ fun FloatingOverlayView(
                         onDismiss()
                     }
                 },
+                onShareAndDeleteClick = {
+                    if (isDismissing || isDeleting || showUndoNotification) return@ArcMenuLayout
+                    isDeleting = true
+                    triggerHapticFeedback(context, HapticType.DROP)
+                    coroutineScope.launch {
+                        delay(200)
+                        onShareAndDeleteScreenshot()
+                        isDismissing = true
+                        delay(200)
+                        onDismiss()
+                    }
+                },
+                onCopyClick = {
+                    if (isDismissing || isDeleting || showUndoNotification) return@ArcMenuLayout
+                    triggerHapticFeedback(context, HapticType.DROP)
+                    coroutineScope.launch {
+                        delay(150)
+                        onCopyScreenshot()
+                        isDismissing = true
+                        delay(200)
+                        onDismiss()
+                    }
+                },
                 onMoreClick = {
                     isOverflowExpanded = !isOverflowExpanded
                     triggerHapticFeedback(context, HapticType.ENTER)
@@ -366,7 +395,7 @@ fun FloatingOverlayView(
             )
 
             val thumbnailDragScale by animateFloatAsState(
-                targetValue = if (hoveredCategory != null || isDeleteHovered || isShareHovered) 0.68f else 1.0f,
+                targetValue = if (hoveredCategory != null || isDeleteHovered || isShareHovered || isShareAndDeleteHovered || isCopyHovered) 0.68f else 1.0f,
                 animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
                 label = "ThumbnailDragScale"
             )
@@ -378,7 +407,9 @@ fun FloatingOverlayView(
                     isDeleting -> Color(0xFFE53935)
                     successCategory != null -> Color(0xFF4CAF50)
                     isDeleteHovered -> Color(0xFFE53935)
-                    isShareHovered -> Color(0xFF29B6F6)
+                    isShareHovered -> Color(0xFF00E5FF)
+                    isShareAndDeleteHovered -> Color(0xFFFFB300)
+                    isCopyHovered -> Color(0xFF7C4DFF)
                     currentHovered != null -> {
                         if (settings.dynamicPaletteEnabled) screenshot.paletteColors.vibrant else currentHovered.composeColor
                     }
@@ -432,6 +463,8 @@ fun FloatingOverlayView(
                                         val newHoveredCat = (hoverTarget as? HoverTarget.Category)?.category
                                         val newIsDelete = hoverTarget is HoverTarget.Delete
                                         val newIsShare = hoverTarget is HoverTarget.Share
+                                        val newIsShareAndDelete = hoverTarget is HoverTarget.ShareAndDelete
+                                        val newIsCopy = hoverTarget is HoverTarget.Copy
                                         val newIsMore = hoverTarget is HoverTarget.More
 
                                         if (newIsDelete != isDeleteHovered) {
@@ -441,6 +474,14 @@ fun FloatingOverlayView(
                                         if (newIsShare != isShareHovered) {
                                             isShareHovered = newIsShare
                                             if (newIsShare) triggerHapticFeedback(context, HapticType.ENTER)
+                                        }
+                                        if (newIsShareAndDelete != isShareAndDeleteHovered) {
+                                            isShareAndDeleteHovered = newIsShareAndDelete
+                                            if (newIsShareAndDelete) triggerHapticFeedback(context, HapticType.WARNING)
+                                        }
+                                        if (newIsCopy != isCopyHovered) {
+                                            isCopyHovered = newIsCopy
+                                            if (newIsCopy) triggerHapticFeedback(context, HapticType.ENTER)
                                         }
                                         if (newIsMore != isMoreHovered) {
                                             isMoreHovered = newIsMore
@@ -476,6 +517,25 @@ fun FloatingOverlayView(
                                                 delay(200)
                                                 onDismiss()
                                             }
+                                        } else if (isShareAndDeleteHovered) {
+                                            isDeleting = true
+                                            triggerHapticFeedback(context, HapticType.DROP)
+                                            coroutineScope.launch {
+                                                delay(200)
+                                                onShareAndDeleteScreenshot()
+                                                isDismissing = true
+                                                delay(200)
+                                                onDismiss()
+                                            }
+                                        } else if (isCopyHovered) {
+                                            triggerHapticFeedback(context, HapticType.DROP)
+                                            coroutineScope.launch {
+                                                delay(150)
+                                                onCopyScreenshot()
+                                                isDismissing = true
+                                                delay(200)
+                                                onDismiss()
+                                            }
                                         } else if (hoveredCategory != null) {
                                             val target = hoveredCategory!!
                                             successCategory = target
@@ -491,6 +551,8 @@ fun FloatingOverlayView(
                                             hoveredCategory = null
                                             isDeleteHovered = false
                                             isShareHovered = false
+                                            isShareAndDeleteHovered = false
+                                            isCopyHovered = false
                                             isMoreHovered = false
                                         }
                                     },
@@ -501,6 +563,8 @@ fun FloatingOverlayView(
                                         hoveredCategory = null
                                         isDeleteHovered = false
                                         isShareHovered = false
+                                        isShareAndDeleteHovered = false
+                                        isCopyHovered = false
                                         isMoreHovered = false
                                     }
                                 )
@@ -709,53 +773,7 @@ fun FloatingOverlayView(
                         )
                     }
 
-                    // Arc Design Switcher Pill
-                    if (!isDragging && successCategory == null && !isDeleting) {
-                        Surface(
-                            shape = RoundedCornerShape(18.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f),
-                            shadowElevation = 6.dp,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                ArcDesignStyle.values().forEach { style ->
-                                    val isSelected = currentArcStyle == style
-                                    Surface(
-                                        shape = RoundedCornerShape(14.dp),
-                                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(14.dp))
-                                            .clickable {
-                                                currentArcStyle = style
-                                                onStyleChanged?.invoke(style)
-                                                triggerHapticFeedback(context, HapticType.ENTER)
-                                            }
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = when (style) {
-                                                    ArcDesignStyle.ORBIT -> "✦ Orbit"
-                                                    ArcDesignStyle.FAN -> "⌓ Fan"
-                                                    ArcDesignStyle.DIAL -> "🝯 Dial"
-                                                },
-                                                style = MaterialTheme.typography.labelSmall.copy(
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                                ),
-                                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+
 
                     // Drag instruction & Open Search shortcut
                     AnimatedVisibility(

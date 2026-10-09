@@ -23,8 +23,10 @@ enum class OverlayEdgeAnchor {
 
 sealed class HoverTarget {
     data class Category(val category: CategoryUiModel) : HoverTarget()
-    data object Delete : HoverTarget()
     data object Share : HoverTarget()
+    data object ShareAndDelete : HoverTarget()
+    data object Delete : HoverTarget()
+    data object Copy : HoverTarget()
     data object More : HoverTarget()
 }
 
@@ -32,10 +34,14 @@ data class RadialTargetLayout(
     val categoriesWithPos: List<Pair<CategoryUiModel, Offset>>,
     val deletePos: Offset,
     val sharePos: Offset? = null,
+    val shareAndDeletePos: Offset? = null,
+    val copyPos: Offset? = null,
     val morePos: Offset? = null,
     val isDualRing: Boolean = false,
     val suggestedCategoryId: Long? = null,
-    val overflowCategories: List<CategoryUiModel> = emptyList()
+    val overflowCategories: List<CategoryUiModel> = emptyList(),
+    val innerRadiusPx: Float = 0f,
+    val outerRadiusPx: Float = 0f
 )
 
 object RadialMenuGeometry {
@@ -63,7 +69,7 @@ object RadialMenuGeometry {
     fun calculateLayout(
         categories: List<CategoryUiModel>,
         radiusPx: Float,
-        style: ArcDesignStyle,
+        style: ArcDesignStyle = ArcDesignStyle.ORBIT,
         isRtl: Boolean = false,
         handedness: Handedness = Handedness.AUTO,
         edgeAnchor: OverlayEdgeAnchor = OverlayEdgeAnchor.AUTO,
@@ -95,13 +101,26 @@ object RadialMenuGeometry {
 
         when (edgeAnchor) {
             OverlayEdgeAnchor.BOTTOM_RIGHT -> {
-                // Anchored to bottom-right corner bubble: expand inward into the upper-left quadrant
-                val (startDeg, endDeg) = Pair(-100f, -165f)
+                // Layer 1 (Inner Arc - Actions: Copy, Share, Share & Delete, Delete)
+                val innerRadius = radiusPx * 0.60f
+                val copyAngle = -80f * (PI.toFloat() / 180f)
+                val shareAngle = -112f * (PI.toFloat() / 180f)
+                val shareAndDelAngle = -145f * (PI.toFloat() / 180f)
+                val deleteAngle = -178f * (PI.toFloat() / 180f)
+
+                val copyPos = Offset(innerRadius * cos(copyAngle), innerRadius * sin(copyAngle))
+                val sharePos = Offset(innerRadius * cos(shareAngle), innerRadius * sin(shareAngle))
+                val shareAndDeletePos = Offset(innerRadius * cos(shareAndDelAngle), innerRadius * sin(shareAndDelAngle))
+                val deletePos = Offset(innerRadius * cos(deleteAngle), innerRadius * sin(deleteAngle))
+
+                // Layer 2 (Outer Arc - Categories)
+                val outerRadius = radiusPx * 1.15f
+                val (startDeg, endDeg) = Pair(-96f, -172f)
                 val count = displayedCategories.size + (if (hasOverflow && !isOverflowExpanded) 1 else 0)
 
                 if (count == 1) {
                     val angle = -135f * (PI.toFloat() / 180f)
-                    catPositions.add(displayedCategories[0] to Offset(radiusPx * cos(angle), radiusPx * sin(angle)))
+                    catPositions.add(displayedCategories[0] to Offset(outerRadius * cos(angle), outerRadius * sin(angle)))
                 } else if (count > 1) {
                     val startAngle = startDeg * (PI.toFloat() / 180f)
                     val endAngle = endDeg * (PI.toFloat() / 180f)
@@ -109,7 +128,7 @@ object RadialMenuGeometry {
 
                     displayedCategories.forEachIndexed { i, cat ->
                         val isOuter = isOverflowExpanded && i >= 5
-                        val effectiveRadius = if (isOuter) radiusPx * 1.35f else radiusPx
+                        val effectiveRadius = if (isOuter) outerRadius * 1.28f else outerRadius
                         val a = if (isOuter) {
                             val outerStep = (endAngle - startAngle) / (total - 5).coerceAtLeast(1)
                             startAngle + (i - 5) * outerStep
@@ -120,38 +139,46 @@ object RadialMenuGeometry {
                     }
 
                     if (hasOverflow && !isOverflowExpanded) {
-                        val moreAngle = -170f * (PI.toFloat() / 180f)
-                        morePos = Offset(radiusPx * cos(moreAngle), radiusPx * sin(moreAngle))
+                        val moreAngle = -175f * (PI.toFloat() / 180f)
+                        morePos = Offset(outerRadius * cos(moreAngle), outerRadius * sin(moreAngle))
                     }
                 }
-
-                // Delete target placed leftward from bubble (-185°)
-                val deleteAngle = -185f * (PI.toFloat() / 180f)
-                val deletePos = Offset(radiusPx * cos(deleteAngle), radiusPx * sin(deleteAngle))
-
-                // Share target placed upward from bubble (-80°)
-                val shareAngle = -80f * (PI.toFloat() / 180f)
-                val sharePos = Offset(radiusPx * cos(shareAngle), radiusPx * sin(shareAngle))
 
                 return RadialTargetLayout(
                     categoriesWithPos = catPositions,
                     deletePos = deletePos,
                     sharePos = sharePos,
+                    shareAndDeletePos = shareAndDeletePos,
+                    copyPos = copyPos,
                     morePos = morePos,
                     isDualRing = isOverflowExpanded && total > 6,
                     suggestedCategoryId = suggestedCategoryId,
-                    overflowCategories = overflowList
+                    overflowCategories = overflowList,
+                    innerRadiusPx = innerRadius,
+                    outerRadiusPx = outerRadius
                 )
             }
 
             OverlayEdgeAnchor.BOTTOM_LEFT -> {
                 // Anchored to bottom-left corner bubble: expand inward into the upper-right quadrant
-                val (startDeg, endDeg) = Pair(-80f, -15f)
+                val innerRadius = radiusPx * 0.60f
+                val copyAngle = -100f * (PI.toFloat() / 180f)
+                val shareAngle = -68f * (PI.toFloat() / 180f)
+                val shareAndDelAngle = -35f * (PI.toFloat() / 180f)
+                val deleteAngle = -2f * (PI.toFloat() / 180f)
+
+                val copyPos = Offset(innerRadius * cos(copyAngle), innerRadius * sin(copyAngle))
+                val sharePos = Offset(innerRadius * cos(shareAngle), innerRadius * sin(shareAngle))
+                val shareAndDeletePos = Offset(innerRadius * cos(shareAndDelAngle), innerRadius * sin(shareAndDelAngle))
+                val deletePos = Offset(innerRadius * cos(deleteAngle), innerRadius * sin(deleteAngle))
+
+                val outerRadius = radiusPx * 1.15f
+                val (startDeg, endDeg) = Pair(-84f, -8f)
                 val count = displayedCategories.size + (if (hasOverflow && !isOverflowExpanded) 1 else 0)
 
                 if (count == 1) {
                     val angle = -45f * (PI.toFloat() / 180f)
-                    catPositions.add(displayedCategories[0] to Offset(radiusPx * cos(angle), radiusPx * sin(angle)))
+                    catPositions.add(displayedCategories[0] to Offset(outerRadius * cos(angle), outerRadius * sin(angle)))
                 } else if (count > 1) {
                     val startAngle = startDeg * (PI.toFloat() / 180f)
                     val endAngle = endDeg * (PI.toFloat() / 180f)
@@ -159,7 +186,7 @@ object RadialMenuGeometry {
 
                     displayedCategories.forEachIndexed { i, cat ->
                         val isOuter = isOverflowExpanded && i >= 5
-                        val effectiveRadius = if (isOuter) radiusPx * 1.35f else radiusPx
+                        val effectiveRadius = if (isOuter) outerRadius * 1.28f else outerRadius
                         val a = if (isOuter) {
                             val outerStep = (endAngle - startAngle) / (total - 5).coerceAtLeast(1)
                             startAngle + (i - 5) * outerStep
@@ -170,27 +197,23 @@ object RadialMenuGeometry {
                     }
 
                     if (hasOverflow && !isOverflowExpanded) {
-                        val moreAngle = -10f * (PI.toFloat() / 180f)
-                        morePos = Offset(radiusPx * cos(moreAngle), radiusPx * sin(moreAngle))
+                        val moreAngle = -5f * (PI.toFloat() / 180f)
+                        morePos = Offset(outerRadius * cos(moreAngle), outerRadius * sin(moreAngle))
                     }
                 }
-
-                // Delete target placed rightward from bubble (-5°)
-                val deleteAngle = -5f * (PI.toFloat() / 180f)
-                val deletePos = Offset(radiusPx * cos(deleteAngle), radiusPx * sin(deleteAngle))
-
-                // Share target placed upward from bubble (-100°)
-                val shareAngle = -100f * (PI.toFloat() / 180f)
-                val sharePos = Offset(radiusPx * cos(shareAngle), radiusPx * sin(shareAngle))
 
                 return RadialTargetLayout(
                     categoriesWithPos = catPositions,
                     deletePos = deletePos,
                     sharePos = sharePos,
+                    shareAndDeletePos = shareAndDeletePos,
+                    copyPos = copyPos,
                     morePos = morePos,
                     isDualRing = isOverflowExpanded && total > 6,
                     suggestedCategoryId = suggestedCategoryId,
-                    overflowCategories = overflowList
+                    overflowCategories = overflowList,
+                    innerRadiusPx = innerRadius,
+                    outerRadiusPx = outerRadius
                 )
             }
 
@@ -247,10 +270,14 @@ object RadialMenuGeometry {
                             categoriesWithPos = catPositions,
                             deletePos = deletePos,
                             sharePos = sharePos,
+                            shareAndDeletePos = Offset(-sharePos.x, sharePos.y),
+                            copyPos = Offset(0f, -radiusPx * 0.5f),
                             morePos = morePos,
                             isDualRing = isOverflowExpanded && total > 6,
                             suggestedCategoryId = suggestedCategoryId,
-                            overflowCategories = overflowList
+                            overflowCategories = overflowList,
+                            innerRadiusPx = radiusPx * 0.6f,
+                            outerRadiusPx = radiusPx
                         )
                     }
 
@@ -299,10 +326,14 @@ object RadialMenuGeometry {
                             categoriesWithPos = catPositions,
                             deletePos = deletePos,
                             sharePos = sharePos,
+                            shareAndDeletePos = Offset(-sharePos.x, sharePos.y),
+                            copyPos = Offset(0f, -radiusPx * 0.5f),
                             morePos = morePos,
                             isDualRing = isOverflowExpanded && total > 6,
                             suggestedCategoryId = suggestedCategoryId,
-                            overflowCategories = overflowList
+                            overflowCategories = overflowList,
+                            innerRadiusPx = radiusPx * 0.6f,
+                            outerRadiusPx = radiusPx
                         )
                     }
 
@@ -342,10 +373,14 @@ object RadialMenuGeometry {
                             categoriesWithPos = catPositions,
                             deletePos = deletePos,
                             sharePos = sharePos,
+                            shareAndDeletePos = Offset(-sharePos.x, sharePos.y),
+                            copyPos = Offset(0f, -radiusPx * 0.5f),
                             morePos = morePos,
                             isDualRing = isOverflowExpanded && total > 6,
                             suggestedCategoryId = suggestedCategoryId,
-                            overflowCategories = overflowList
+                            overflowCategories = overflowList,
+                            innerRadiusPx = radiusPx * 0.6f,
+                            outerRadiusPx = radiusPx
                         )
                     }
                 }
@@ -367,7 +402,15 @@ object RadialMenuGeometry {
             return HoverTarget.Delete
         }
 
-        // 2. Check Share target
+        // 2. Check Share & Delete target
+        layout.shareAndDeletePos?.let { sdPos ->
+            val dSd = (dragOffset - sdPos).getDistance()
+            if (dSd <= hitThresholdPx) {
+                return HoverTarget.ShareAndDelete
+            }
+        }
+
+        // 3. Check Share target
         layout.sharePos?.let { sPos ->
             val dShare = (dragOffset - sPos).getDistance()
             if (dShare <= hitThresholdPx) {
@@ -375,7 +418,15 @@ object RadialMenuGeometry {
             }
         }
 
-        // 3. Check More overflow node
+        // 4. Check Copy target
+        layout.copyPos?.let { cPos ->
+            val dCopy = (dragOffset - cPos).getDistance()
+            if (dCopy <= hitThresholdPx) {
+                return HoverTarget.Copy
+            }
+        }
+
+        // 5. Check More overflow node
         layout.morePos?.let { mPos ->
             val dMore = (dragOffset - mPos).getDistance()
             if (dMore <= hitThresholdPx) {

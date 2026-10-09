@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.UnfoldLess
 import androidx.compose.material.icons.filled.UnfoldMore
@@ -24,6 +25,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -48,6 +50,7 @@ import com.screenarc.app.ui.screens.settings.OverlayControlsSection
 import com.screenarc.app.ui.screens.settings.RuleEditorDialog
 import com.screenarc.app.ui.screens.settings.RulesSettingsSection
 import com.screenarc.app.ui.screens.settings.ThemePickerSection
+import com.screenarc.app.ui.theme.GlassElevatedCard
 import com.screenarc.app.viewmodel.SearchViewModel
 
 @Composable
@@ -249,7 +252,63 @@ fun SettingsScreen(
             )
         }
 
-        // 7. Reliability & System Health Diagnostics Card
+        // 7. Duplicate Screenshot Finder Configuration Card
+        item {
+            GlassElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Duplicate Screenshot Finder",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "Detect and clean near-duplicate screenshots on Home",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = settings.duplicateFinderEnabled,
+                            onCheckedChange = { isEnabled ->
+                                settingsRepo.updateSettings { it.copy(duplicateFinderEnabled = isEnabled) }
+                            }
+                        )
+                    }
+
+                    if (settings.duplicateFinderEnabled) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "When enabled, scans for visual difference hashes (dHash) and OCR text similarity within 5-minute capture windows to find redundant shots.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                        )
+                    }
+                }
+            }
+        }
+
+        // 8. Reliability & System Health Diagnostics Card
         item {
             DiagnosticsSection(
                 expanded = reliabilityExpanded,
