@@ -233,4 +233,104 @@ class RadialArcRedesignAndDuplicatePreventionTest {
         assertEquals(ArcDesignStyle.FAN, ArcDesignStyle.valueOf("FAN"))
         assertEquals(ArcDesignStyle.DIAL, ArcDesignStyle.valueOf("DIAL"))
     }
+
+    @Test
+    fun testBottomRightCornerRadialMenuGeometry() {
+        val categories = listOf(
+            CategoryUiModel(1L, "Work", "Work"),
+            CategoryUiModel(2L, "Personal", "Personal"),
+            CategoryUiModel(3L, "Finance", "Finance")
+        )
+        val radiusPx = 280f
+        val layout = RadialMenuGeometry.calculateLayout(
+            categories = categories,
+            radiusPx = radiusPx,
+            style = ArcDesignStyle.ORBIT,
+            edgeAnchor = OverlayEdgeAnchor.BOTTOM_RIGHT
+        )
+
+        assertEquals(3, layout.categoriesWithPos.size)
+
+        // All category targets must bloom into the upper-left quadrant (x < 0, y < 0)
+        layout.categoriesWithPos.forEach { (cat, pos) ->
+            assertTrue("Category ${cat.name} x should be negative (leftward into screen), was ${pos.x}", pos.x < 0)
+            assertTrue("Category ${cat.name} y should be negative (upward into screen), was ${pos.y}", pos.y < 0)
+        }
+
+        // Delete target must be stationed on the left side of the bubble (negative x)
+        assertNotNull(layout.deletePos)
+        assertTrue("Delete target x should be negative for bottom-right corner", layout.deletePos.x < 0)
+
+        // Share target must be stationed above the bubble (negative y)
+        assertNotNull(layout.sharePos)
+        assertTrue("Share target y should be negative (above bubble) for bottom-right corner", layout.sharePos!!.y < 0)
+    }
+
+    @Test
+    fun testBottomLeftCornerRadialMenuGeometry() {
+        val categories = listOf(
+            CategoryUiModel(1L, "Work", "Work"),
+            CategoryUiModel(2L, "Personal", "Personal")
+        )
+        val radiusPx = 280f
+        val layout = RadialMenuGeometry.calculateLayout(
+            categories = categories,
+            radiusPx = radiusPx,
+            style = ArcDesignStyle.ORBIT,
+            edgeAnchor = OverlayEdgeAnchor.BOTTOM_LEFT
+        )
+
+        assertEquals(2, layout.categoriesWithPos.size)
+
+        // All category targets must bloom into the upper-right quadrant (x > 0, y < 0)
+        layout.categoriesWithPos.forEach { (cat, pos) ->
+            assertTrue("Category ${cat.name} x should be positive (rightward into screen)", pos.x > 0)
+            assertTrue("Category ${cat.name} y should be negative (upward into screen)", pos.y < 0)
+        }
+
+        // Delete target must be stationed on the right side of the bubble (positive x)
+        assertNotNull(layout.deletePos)
+        assertTrue("Delete target x should be positive for bottom-left corner", layout.deletePos.x > 0)
+
+        // Share target must be stationed above the bubble (negative y)
+        assertNotNull(layout.sharePos)
+        assertTrue("Share target y should be negative for bottom-left corner", layout.sharePos!!.y < 0)
+    }
+
+    @Test
+    fun testInternallyGeneratedScreenshotExclusion() {
+        // Redacted screenshot files must be excluded
+        assertTrue(com.screenarc.app.service.ScreenshotObserver.isExcluded(100L, null, "Screenshot_Redacted_1712345678.png"))
+        assertTrue(com.screenarc.app.service.ScreenshotObserver.isExcluded(101L, null, "screenarc_export.png"))
+        assertTrue(com.screenarc.app.service.ScreenshotObserver.isExcluded(102L, null, "image_edited_99.png"))
+        assertTrue(com.screenarc.app.service.ScreenshotObserver.isExcluded(103L, null, "screenshot_redacted_test.jpg"))
+
+        // Fresh normal screenshots must NOT be excluded
+        assertFalse(com.screenarc.app.service.ScreenshotObserver.isExcluded(999999L, null, "Screenshot_20261010-035000.png"))
+        assertFalse(com.screenarc.app.service.ScreenshotObserver.isExcluded(999998L, null, "capture_20261010.png"))
+    }
+
+    @Test
+    fun testCompanionExclusionRegistryByUriAndId() {
+        val testId = 777666L
+        com.screenarc.app.service.ScreenshotObserver.excludeId(testId)
+        assertTrue("Excluded ID must be recognized", com.screenarc.app.service.ScreenshotObserver.isExcluded(testId, null, "Screenshot_Normal.png"))
+
+        val mockUri = org.mockito.Mockito.mock(android.net.Uri::class.java)
+        org.mockito.Mockito.`when`(mockUri.toString()).thenReturn("content://media/external_primary/images/media/555444")
+        org.mockito.Mockito.`when`(mockUri.lastPathSegment).thenReturn("555444")
+
+        com.screenarc.app.service.ScreenshotObserver.excludeUri(mockUri)
+
+        // Primary URI must be excluded
+        assertTrue(com.screenarc.app.service.ScreenshotObserver.isExcluded(1L, mockUri, "Screenshot_Normal.png"))
+
+        // Extracted ID must also be excluded
+        assertTrue(com.screenarc.app.service.ScreenshotObserver.isExcluded(555444L, null, "Screenshot_Normal.png"))
+
+        // Normalized external URI should also be excluded
+        val normalizedUri = org.mockito.Mockito.mock(android.net.Uri::class.java)
+        org.mockito.Mockito.`when`(normalizedUri.toString()).thenReturn("content://media/external/images/media/555444")
+        assertTrue(com.screenarc.app.service.ScreenshotObserver.isExcluded(2L, normalizedUri, "Screenshot_Normal.png"))
+    }
 }

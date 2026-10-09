@@ -95,6 +95,7 @@ fun ArcMenuLayout(
     handedness: Handedness = Handedness.AUTO,
     edgeAnchor: OverlayEdgeAnchor = OverlayEdgeAnchor.AUTO,
     arcDesignStyle: ArcDesignStyle,
+    anchorOffset: Offset = Offset.Zero,
     onCategoryClick: (CategoryUiModel) -> Unit,
     onDeleteClick: () -> Unit,
     onShareClick: () -> Unit,
@@ -162,7 +163,7 @@ fun ArcMenuLayout(
         ) {
             // 1. Background Visual Guide Tracks & Connecting Energy Tethers
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val centerOffset = Offset(size.width / 2f, size.height / 2f)
+                val centerOffset = Offset(size.width / 2f + anchorOffset.x, size.height / 2f + anchorOffset.y)
                 val currentRadius = radiusPx * animatedProgress
 
                 // A. Visual Arc Geometry Guides
@@ -202,8 +203,13 @@ fun ArcMenuLayout(
                         }
 
                         // Subtle orbital tick markers
+                        val (tickStartDeg, tickSweepDeg) = when (edgeAnchor) {
+                            OverlayEdgeAnchor.BOTTOM_RIGHT -> Pair(-190, 110)
+                            OverlayEdgeAnchor.BOTTOM_LEFT -> Pair(-85, 110)
+                            OverlayEdgeAnchor.CENTER, OverlayEdgeAnchor.AUTO -> Pair(0, 360)
+                        }
                         for (i in 0 until 12) {
-                            val tickAngle = (i * 30) * (PI.toFloat() / 180f)
+                            val tickAngle = (tickStartDeg + (i * (tickSweepDeg / 11f))) * (PI.toFloat() / 180f)
                             val startP = centerOffset + Offset(
                                 (currentRadius - 5.dp.toPx()) * cos(tickAngle),
                                 (currentRadius - 5.dp.toPx()) * sin(tickAngle)
@@ -223,7 +229,12 @@ fun ArcMenuLayout(
                     }
 
                     ArcDesignStyle.FAN -> {
-                        // Glowing Upper Fan Ribbon Track
+                        // Glowing Fan Ribbon Track
+                        val (fanStart, fanSweep) = when (edgeAnchor) {
+                            OverlayEdgeAnchor.BOTTOM_RIGHT -> Pair(175f, 105f)
+                            OverlayEdgeAnchor.BOTTOM_LEFT -> Pair(265f, 105f)
+                            OverlayEdgeAnchor.CENTER, OverlayEdgeAnchor.AUTO -> Pair(180f, 180f)
+                        }
                         drawArc(
                             brush = Brush.sweepGradient(
                                 listOf(
@@ -232,8 +243,8 @@ fun ArcMenuLayout(
                                     primaryColor.copy(alpha = 0.05f)
                                 )
                             ),
-                            startAngle = 180f,
-                            sweepAngle = 180f,
+                            startAngle = fanStart,
+                            sweepAngle = fanSweep,
                             useCenter = false,
                             topLeft = centerOffset - Offset(currentRadius, currentRadius),
                             size = androidx.compose.ui.geometry.Size(currentRadius * 2, currentRadius * 2),
@@ -242,8 +253,8 @@ fun ArcMenuLayout(
                         if (layout.isDualRing) {
                             drawArc(
                                 color = primaryColor.copy(alpha = 0.18f * animatedProgress),
-                                startAngle = 180f,
-                                sweepAngle = 180f,
+                                startAngle = fanStart,
+                                sweepAngle = fanSweep,
                                 useCenter = false,
                                 topLeft = centerOffset - Offset(currentRadius * 1.35f, currentRadius * 1.35f),
                                 size = androidx.compose.ui.geometry.Size(currentRadius * 2.7f, currentRadius * 2.7f),
@@ -412,7 +423,7 @@ fun ArcMenuLayout(
 
                 Surface(
                     modifier = Modifier
-                        .offset { IntOffset(xPx.roundToInt(), yPx.roundToInt()) }
+                        .offset { IntOffset((anchorOffset.x + xPx).roundToInt(), (anchorOffset.y + yPx).roundToInt()) }
                         .scale(chipScale * animatedProgress)
                         .shadow(chipElevation, shape = RoundedCornerShape(22.dp), clip = false)
                         .clip(RoundedCornerShape(22.dp))
@@ -557,7 +568,7 @@ fun ArcMenuLayout(
 
                 Surface(
                     modifier = Modifier
-                        .offset { IntOffset(xPx.roundToInt(), yPx.roundToInt()) }
+                        .offset { IntOffset((anchorOffset.x + xPx).roundToInt(), (anchorOffset.y + yPx).roundToInt()) }
                         .scale(moreScale * animatedProgress)
                         .shadow(if (isHovered) 16.dp else 4.dp, shape = RoundedCornerShape(22.dp), clip = false)
                         .clip(RoundedCornerShape(22.dp))
@@ -658,7 +669,7 @@ fun ArcMenuLayout(
 
             Surface(
                 modifier = Modifier
-                    .offset { IntOffset(delX.roundToInt(), delY.roundToInt()) }
+                    .offset { IntOffset((anchorOffset.x + delX).roundToInt(), (anchorOffset.y + delY).roundToInt()) }
                     .scale(deleteScale * animatedProgress)
                     .shadow(deleteElevation, shape = RoundedCornerShape(22.dp), clip = false)
                     .clip(RoundedCornerShape(22.dp))
@@ -777,7 +788,7 @@ fun ArcMenuLayout(
 
                 Surface(
                     modifier = Modifier
-                        .offset { IntOffset(shX.roundToInt(), shY.roundToInt()) }
+                        .offset { IntOffset((anchorOffset.x + shX).roundToInt(), (anchorOffset.y + shY).roundToInt()) }
                         .scale(shareScale * animatedProgress)
                         .shadow(shareElevation, shape = RoundedCornerShape(22.dp), clip = false)
                         .clip(RoundedCornerShape(22.dp))

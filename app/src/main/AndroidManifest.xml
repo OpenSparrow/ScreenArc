@@ -46,6 +46,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".RedactionEditorActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ScreenArc" />
+
         <service
             android:name=".service.OverlayService"
             android:enabled="true"

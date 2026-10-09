@@ -41,12 +41,14 @@ import com.screenarc.app.data.AppSettingsRepository
 import com.screenarc.app.data.CategoryRepository
 import com.screenarc.app.data.OrganizedHistoryRepository
 import com.screenarc.app.data.ScreenshotRepository
+import com.screenarc.app.RedactionEditorActivity
 import com.screenarc.app.model.CategoryUiModel
 import com.screenarc.app.model.OverlayEvent
 import com.screenarc.app.model.ScreenshotItem
 import com.screenarc.app.palette.PaletteExtractor
 import com.screenarc.app.storage.MediaStoreOrganizer
 import com.screenarc.app.ui.overlay.FloatingOverlayView
+import com.screenarc.app.ui.overlay.OverlayPhase
 import com.screenarc.app.ui.theme.ScreenArcTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -121,6 +123,11 @@ class OverlayService : Service() {
                     }
                     is OverlayEvent.OverlayClosed -> {
                         removeOverlayView(clearCurrentScreenshot = true)
+                    }
+                    is OverlayEvent.ScreenshotHandled -> {
+                        // An app-generated image (e.g. redacted copy) must never
+                        // be re-detected as a fresh screenshot.
+                        screenshotObserver?.markProcessedUri(event.uri)
                     }
                     is OverlayEvent.ScreenshotsChanged -> {
                         // handle screenshots change
@@ -319,9 +326,14 @@ class OverlayService : Service() {
         removeOverlayView(clearCurrentScreenshot = false)
         currentOverlayScreenshot = screenshot
 
+        val density = resources.displayMetrics.density
+        val isRtl = resources.configuration.layoutDirection == android.view.View.LAYOUT_DIRECTION_RTL
+        val bubbleMarginEndPx = (20 * density).toInt()
+        val bubbleMarginBottomPx = (80 * density).toInt()
+
         val layoutParams = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             } else {
@@ -334,7 +346,9 @@ class OverlayService : Service() {
                     WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.CENTER
+            gravity = if (isRtl) (Gravity.BOTTOM or Gravity.LEFT) else (Gravity.BOTTOM or Gravity.RIGHT)
+            x = bubbleMarginEndPx
+            y = bubbleMarginBottomPx
         }
 
         val composeView = ComposeView(this).apply {
@@ -367,21 +381,31 @@ class OverlayService : Service() {
                         suggestedCategoryId = suggestedCategoryId,
                         categoryUsageMap = usageMap,
                         entities = entities,
-                        onPhaseChanged = { isUndoPhase ->
-                            // When in Undo phase, we change the window to WRAP_CONTENT and position it at bottom center.
-                            // This allows touches outside the toast to pass through to apps underneath.
-                            if (isUndoPhase) {
-                                layoutParams.width = WindowManager.LayoutParams.WRAP_CONTENT
-                                layoutParams.height = WindowManager.LayoutParams.WRAP_CONTENT
-                                layoutParams.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-                                layoutParams.x = 0
-                                layoutParams.y = 0
-                            } else {
-                                layoutParams.width = WindowManager.LayoutParams.MATCH_PARENT
-                                layoutParams.height = WindowManager.LayoutParams.MATCH_PARENT
-                                layoutParams.gravity = Gravity.CENTER
-                                layoutParams.x = 0
-                                layoutParams.y = 0
+                        onPhaseChanged = { phase ->
+                            val d = resources.displayMetrics.density
+                            val rtl = resources.configuration.layoutDirection == android.view.View.LAYOUT_DIRECTION_RTL
+                            when (phase) {
+                                OverlayPhase.BUBBLE -> {
+                                    layoutParams.width = WindowManager.LayoutParams.WRAP_CONTENT
+                                    layoutParams.height = WindowManager.LayoutParams.WRAP_CONTENT
+                                    layoutParams.gravity = if (rtl) (Gravity.BOTTOM or Gravity.LEFT) else (Gravity.BOTTOM or Gravity.RIGHT)
+                                    layoutParams.x = (20 * d).toInt()
+                                    layoutParams.y = (80 * d).toInt()
+                                }
+                                OverlayPhase.ARC_EXPANDED -> {
+                                    layoutParams.width = WindowManager.LayoutParams.MATCH_PARENT
+                                    layoutParams.height = WindowManager.LayoutParams.MATCH_PARENT
+                                    layoutParams.gravity = Gravity.CENTER
+                                    layoutParams.x = 0
+                                    layoutParams.y = 0
+                                }
+                                OverlayPhase.UNDO_NOTIFICATION -> {
+                                    layoutParams.width = WindowManager.LayoutParams.WRAP_CONTENT
+                                    layoutParams.height = WindowManager.LayoutParams.WRAP_CONTENT
+                                    layoutParams.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                                    layoutParams.x = 0
+                                    layoutParams.y = 0
+                                }
                             }
                             try {
                                 windowManager?.updateViewLayout(this@apply, layoutParams)
@@ -494,45 +518,28 @@ class OverlayService : Service() {
     }
 
     private fun handleDeleteScreenshot(screenshot: ScreenshotItem) {
-        screenshotObserver?.markProcessed(screenshot.id, screenshot.uri)
-        currentOverlayScreenshot = null
-        removeOverlayView(clearCurrentScreenshot = true)
-
-        serviceScope.launch {
-            val screenshotUi = com.screenarc.app.model.ScreenshotUiModel(
-                id = screenshot.id,
-                uri = screenshot.uri.toString(),
-                displayName = screenshot.displayName,
-                dateAdded = screenshot.dateAdded,
-                size = screenshot.size,
-                relativePath = screenshot.relativePath,
-                mimeType = screenshot.mimeType
-            )
-            val result = screenshotRepository.deleteScreenshot(screenshotUi)
-            result.onSuccess {
-                Toast.makeText(this@OverlayService, "Screenshot deleted", Toast.LENGTH_SHORT).show()
-            }.onFailure { err ->
-                Log.e(TAG, "Failed deleting screenshot: ${err.message}", err)
-                Toast.makeText(this@OverlayService, "Error deleting screenshot: ${err.message}", Toast.LENGTH_SHORT).show()
-            }
-        }
+        launchRedactionEditor(screenshot, RedactionEditorActivity.MODE_DELETE)
     }
 
     private fun handleShareScreenshot(screenshot: ScreenshotItem) {
+        launchRedactionEditor(screenshot, RedactionEditorActivity.MODE_SHARE)
+    }
+
+    /**
+     * Both the Share and Delete arc actions open the full-screen redaction
+     * editor: the screenshot is shown, OCR runs, the user can blackout/pixelate
+     * blocks and then taps OK (share redacted copy → delete original, or delete).
+     */
+    private fun launchRedactionEditor(screenshot: ScreenshotItem, mode: String) {
+        screenshotObserver?.markProcessed(screenshot.id, screenshot.uri)
         removeOverlayView(clearCurrentScreenshot = true)
         try {
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = screenshot.mimeType.ifEmpty { "image/png" }
-                putExtra(Intent.EXTRA_STREAM, screenshot.uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            val chooser = Intent.createChooser(shareIntent, "Share Screenshot").apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            startActivity(chooser)
+            startActivity(RedactionEditorActivity.newIntent(this, screenshot, mode))
+            Log.d(TAG, "Launched RedactionEditorActivity ($mode) for ${screenshot.displayName}")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed sharing screenshot: ${e.message}", e)
-            Toast.makeText(this@OverlayService, "Could not share screenshot: ${e.message}", Toast.LENGTH_SHORT).show()
+            Log.e(TAG, "Failed launching redaction editor: ${e.message}", e)
+            Toast.makeText(this, "Could not open editor: ${e.message}", Toast.LENGTH_SHORT).show()
+            postFallbackNotification(screenshot, "Redaction editor launch failed: ${e.message}")
         }
     }
 

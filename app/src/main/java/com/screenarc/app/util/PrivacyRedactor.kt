@@ -14,6 +14,7 @@ import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
 import com.screenarc.app.model.OcrBlock
+import com.screenarc.app.service.ScreenshotObserver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -111,6 +112,8 @@ object PrivacyRedactor {
             // Save new image to MediaStore
             val timestamp = System.currentTimeMillis()
             val fileName = "Screenshot_Redacted_${timestamp}.png"
+            ScreenshotObserver.excludeFileName(fileName)
+
             val contentValues = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
                 put(MediaStore.Images.Media.MIME_TYPE, "image/png")
@@ -128,6 +131,7 @@ object PrivacyRedactor {
             }
 
             val newUri = resolver.insert(collection, contentValues) ?: return@withContext null
+            ScreenshotObserver.excludeUri(newUri)
 
             resolver.openOutputStream(newUri)?.use { out ->
                 mutableBitmap.compress(Bitmap.CompressFormat.PNG, 100, out)

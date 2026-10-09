@@ -90,7 +90,6 @@ object ConfigurationBackupManager {
                 put("autoDismissSeconds", settings.autoDismissSeconds)
                 put("hapticFeedbackEnabled", settings.hapticFeedbackEnabled)
                 put("dynamicPaletteEnabled", settings.dynamicPaletteEnabled)
-                put("autoExpandOnCapture", settings.autoExpandOnCapture)
                 put("themePreset", settings.themePreset.id)
                 put("uiDesignStyle", settings.uiDesignStyle.name)
                 put("ocrLanguage", settings.ocrLanguage.id)

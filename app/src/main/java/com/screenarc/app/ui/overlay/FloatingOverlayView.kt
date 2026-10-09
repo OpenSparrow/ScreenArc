@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -98,7 +99,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 // ─── Overlay Phases ───────────────────────────────────────────────────────────
-private enum class OverlayPhase {
+enum class OverlayPhase {
     /** Small corner circle thumbnail — tappable, non-blocking */
     BUBBLE,
     /** Full radial arc menu expanded for categorization */
@@ -122,7 +123,7 @@ fun FloatingOverlayView(
     onOpenSearch: () -> Unit,
     onStyleChanged: ((ArcDesignStyle) -> Unit)? = null,
     entities: List<com.screenarc.app.model.SmartEntity> = emptyList(),
-    onPhaseChanged: (Boolean) -> Unit = {},
+    onPhaseChanged: (OverlayPhase) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -141,7 +142,9 @@ fun FloatingOverlayView(
     var currentArcStyle by remember { mutableStateOf(settings.arcDesignStyle) }
 
     // ─── Overlay phase state ──────────────────────────────────────────────────
-    var phase by remember { mutableStateOf(if (settings.autoExpandOnCapture) OverlayPhase.ARC_EXPANDED else OverlayPhase.BUBBLE) }
+    // Always start as the small corner circle (BUBBLE); the radial arc only
+    // expands when the user taps the circle.
+    var phase by remember { mutableStateOf(OverlayPhase.BUBBLE) }
     var successCategory by remember { mutableStateOf<CategoryUiModel?>(null) }
     var isDismissing by remember { mutableStateOf(false) }
     var isDeleting by remember { mutableStateOf(false) }
@@ -155,7 +158,7 @@ fun FloatingOverlayView(
     val showUndoNotification = phase == OverlayPhase.UNDO_NOTIFICATION
 
     LaunchedEffect(phase) {
-        onPhaseChanged(showUndoNotification)
+        onPhaseChanged(phase)
     }
 
     // Drag offset & snapping (only active in ARC_EXPANDED phase)
@@ -232,12 +235,17 @@ fun FloatingOverlayView(
         label = "PulseGlow"
     )
 
+    val edgeAnchor = if (isRtl) OverlayEdgeAnchor.BOTTOM_LEFT else OverlayEdgeAnchor.BOTTOM_RIGHT
+    val handedness = if (isRtl) Handedness.LEFT_HANDED else Handedness.RIGHT_HANDED
+
     val radialLayout = remember(orderedCategories, arcRadiusPx, currentArcStyle, isRtl, isOverflowExpanded, suggestedCategoryId) {
         RadialMenuGeometry.calculateLayout(
             categories = orderedCategories,
             radiusPx = arcRadiusPx,
             style = currentArcStyle,
             isRtl = isRtl,
+            handedness = handedness,
+            edgeAnchor = edgeAnchor,
             suggestedCategoryId = suggestedCategoryId,
             isOverflowExpanded = isOverflowExpanded
         )
@@ -249,7 +257,7 @@ fun FloatingOverlayView(
     ) {
         BoxWithConstraints(
             modifier = modifier
-                .then(if (showUndoNotification) Modifier else Modifier.fillMaxSize())
+                .then(if (isExpanded) Modifier.fillMaxSize() else Modifier.wrapContentSize())
                 .scale(exitScale)
                 .drawBehind {
                     if (exitAlpha < 1f) {
@@ -260,6 +268,18 @@ fun FloatingOverlayView(
         ) {
             val screenWidth = maxWidth
             val screenHeight = maxHeight
+
+            // Stable anchor point in window coordinates for the bubble & radial menu origin
+            val cornerOffsetX = with(density) {
+                val marginEnd = 20.dp.toPx()
+                val distFromCenter = (screenWidth.toPx() / 2f) - (bubbleSize.toPx() / 2f) - marginEnd
+                if (isRtl) -distFromCenter else distFromCenter
+            }
+            val cornerOffsetY = with(density) {
+                val marginBottom = 80.dp.toPx()
+                (screenHeight.toPx() / 2f) - (bubbleSize.toPx() / 2f) - marginBottom
+            }
+            val anchorOffset = remember(cornerOffsetX, cornerOffsetY) { Offset(cornerOffsetX, cornerOffsetY) }
 
             // ─── Phase: BUBBLE — small corner circle, non-blocking ────────────
             // The backdrop only blocks when arc is expanded (needs tap-to-dismiss)
@@ -295,7 +315,10 @@ fun FloatingOverlayView(
                 isMoreHovered = isMoreHovered,
                 isOverflowExpanded = isOverflowExpanded,
                 suggestedCategoryId = suggestedCategoryId,
+                handedness = handedness,
+                edgeAnchor = edgeAnchor,
                 arcDesignStyle = currentArcStyle,
+                anchorOffset = anchorOffset,
                 onCategoryClick = { category ->
                     if (isDismissing || isDeleting || showUndoNotification) return@ArcMenuLayout
                     successCategory = category
@@ -366,35 +389,22 @@ fun FloatingOverlayView(
                 label = "BubbleBorderColor"
             )
 
-            // Corner offset for the bubble: bottom-right corner when in BUBBLE/UNDO phase
             val isBubblePhase = !isExpanded && !showUndoNotification
-            val cornerOffsetX = with(density) {
-                if (isExpanded) 0f
-                else (screenWidth / 2 - bubbleSize / 2 - 20.dp).toPx()
-            }
-            val cornerOffsetY = with(density) {
-                if (isExpanded) 0f
-                else (screenHeight / 2 - bubbleSize / 2 - 80.dp).toPx()
-            }
-            val bubbleTargetX by animateFloatAsState(
-                targetValue = cornerOffsetX,
-                animationSpec = spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMediumLow),
-                label = "BubbleX"
-            )
-            val bubbleTargetY by animateFloatAsState(
-                targetValue = cornerOffsetY,
-                animationSpec = spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMediumLow),
-                label = "BubbleY"
-            )
 
             if (!showUndoNotification) {
                 Box(
                     modifier = Modifier
-                        .offset {
-                            val baseX = if (isExpanded) animatedDragX.roundToInt() else bubbleTargetX.roundToInt()
-                            val baseY = if (isExpanded) animatedDragY.roundToInt() else bubbleTargetY.roundToInt()
-                            IntOffset(baseX, baseY)
-                        }
+                        .then(
+                            if (isExpanded) {
+                                Modifier.offset {
+                                    val baseX = (anchorOffset.x + animatedDragX).roundToInt()
+                                    val baseY = (anchorOffset.y + animatedDragY).roundToInt()
+                                    IntOffset(baseX, baseY)
+                                }
+                            } else {
+                                Modifier
+                            }
+                        )
                         .scale(
                             when {
                                 isBubblePhase && !isDragging -> pulseGlow

@@ -20,7 +20,6 @@ data class AppSettings(
     val autoDismissSeconds: Int = 10,
     val hapticFeedbackEnabled: Boolean = true,
     val dynamicPaletteEnabled: Boolean = true,
-    val autoExpandOnCapture: Boolean = true,
     val playSoundOnDrop: Boolean = false,
     val ocrLanguage: OcrLanguage = OcrLanguage.DEVANAGARI,
     val arcDesignStyle: com.screenarc.app.model.ArcDesignStyle = com.screenarc.app.model.ArcDesignStyle.ORBIT,
@@ -38,6 +37,12 @@ class AppSettingsRepository(context: Context) {
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
     private fun loadSettings(): AppSettings {
+        // Migration: drop the removed "auto expand arc on capture" preference —
+        // the overlay always starts as the small bubble circle now.
+        if (prefs.contains("auto_expand_capture")) {
+            prefs.edit().remove("auto_expand_capture").apply()
+        }
+
         // Migration: If legacy ocr_processing_mode exists and auto_ocr_enabled hasn't been set explicitly,
         // map "AUTOMATIC" to true, everything else to false.
         val autoOcr = if (prefs.contains("auto_ocr_enabled")) {
@@ -80,7 +85,6 @@ class AppSettingsRepository(context: Context) {
             autoDismissSeconds = prefs.getInt("auto_dismiss_seconds", 10),
             hapticFeedbackEnabled = prefs.getBoolean("haptic_feedback_enabled", true),
             dynamicPaletteEnabled = prefs.getBoolean("dynamic_palette_enabled", true),
-            autoExpandOnCapture = prefs.getBoolean("auto_expand_capture", true),
             playSoundOnDrop = prefs.getBoolean("play_sound_drop", false),
             ocrLanguage = ocrLang,
             arcDesignStyle = arcStyle,
@@ -108,7 +112,6 @@ class AppSettingsRepository(context: Context) {
             putInt("auto_dismiss_seconds", finalUpdated.autoDismissSeconds)
             putBoolean("haptic_feedback_enabled", finalUpdated.hapticFeedbackEnabled)
             putBoolean("dynamic_palette_enabled", finalUpdated.dynamicPaletteEnabled)
-            putBoolean("auto_expand_capture", finalUpdated.autoExpandOnCapture)
             putBoolean("play_sound_drop", finalUpdated.playSoundOnDrop)
             putString("ocr_language", finalUpdated.ocrLanguage.id)
             putString("arc_design_style", finalUpdated.arcDesignStyle.name)

@@ -93,77 +93,14 @@ object RadialMenuGeometry {
         var morePos: Offset? = null
         val overflowList = if (hasOverflow) categories.drop(5) else emptyList()
 
-        when (style) {
-            ArcDesignStyle.ORBIT -> {
-                // Orbit mode: Distributes nodes along upper and side quadrant.
-                // Left handed fans rightward (-15° to -165° inverted), Right handed fans leftward.
-                val (startDeg, endDeg) = if (isLeftHanded) {
-                    Pair(-15f, -165f)
-                } else {
-                    Pair(-165f, -15f)
-                }
-
+        when (edgeAnchor) {
+            OverlayEdgeAnchor.BOTTOM_RIGHT -> {
+                // Anchored to bottom-right corner bubble: expand inward into the upper-left quadrant
+                val (startDeg, endDeg) = Pair(-100f, -165f)
                 val count = displayedCategories.size + (if (hasOverflow && !isOverflowExpanded) 1 else 0)
 
                 if (count == 1) {
-                    val angle = -PI.toFloat() / 2f
-                    catPositions.add(displayedCategories[0] to Offset(radiusPx * cos(angle), radiusPx * sin(angle)))
-                } else if (count > 1) {
-                    val startAngle = startDeg * (PI.toFloat() / 180f)
-                    val endAngle = endDeg * (PI.toFloat() / 180f)
-                    val step = (endAngle - startAngle) / (count - 1)
-
-                    displayedCategories.forEachIndexed { i, cat ->
-                        // If dual ring when expanded and total > 6
-                        val isOuter = isOverflowExpanded && i >= 5
-                        val effectiveRadius = if (isOuter) radiusPx * 1.38f else radiusPx
-                        val a = if (isOuter) {
-                            val outerStep = (endAngle - startAngle) / (total - 5).coerceAtLeast(1)
-                            startAngle + (i - 5) * outerStep
-                        } else {
-                            startAngle + i * step
-                        }
-                        catPositions.add(cat to Offset(effectiveRadius * cos(a), effectiveRadius * sin(a)))
-                    }
-
-                    if (hasOverflow && !isOverflowExpanded) {
-                        val moreAngle = startAngle + displayedCategories.size * step
-                        morePos = Offset(radiusPx * cos(moreAngle), radiusPx * sin(moreAngle))
-                    }
-                }
-
-                // Delete target at bottom center (+90°)
-                val deleteAngle = PI.toFloat() / 2f
-                val deletePos = Offset(radiusPx * cos(deleteAngle), radiusPx * sin(deleteAngle))
-
-                // Share target positioned opposite to primary thumb reach
-                val shareDeg = if (isLeftHanded) 38f else 142f
-                val shareAngle = shareDeg * (PI.toFloat() / 180f)
-                val sharePos = Offset(radiusPx * cos(shareAngle), radiusPx * sin(shareAngle))
-
-                return RadialTargetLayout(
-                    categoriesWithPos = catPositions,
-                    deletePos = deletePos,
-                    sharePos = sharePos,
-                    morePos = morePos,
-                    isDualRing = isOverflowExpanded && total > 6,
-                    suggestedCategoryId = suggestedCategoryId,
-                    overflowCategories = overflowList
-                )
-            }
-
-            ArcDesignStyle.FAN -> {
-                // Fan Arc mode: Ergonomic 180° semi-circle blooming above center (-170° to -10°)
-                val (startDeg, endDeg) = if (isLeftHanded) {
-                    Pair(-10f, -170f)
-                } else {
-                    Pair(-170f, -10f)
-                }
-
-                val count = displayedCategories.size + (if (hasOverflow && !isOverflowExpanded) 1 else 0)
-
-                if (count == 1) {
-                    val angle = -PI.toFloat() / 2f
+                    val angle = -135f * (PI.toFloat() / 180f)
                     catPositions.add(displayedCategories[0] to Offset(radiusPx * cos(angle), radiusPx * sin(angle)))
                 } else if (count > 1) {
                     val startAngle = startDeg * (PI.toFloat() / 180f)
@@ -183,14 +120,17 @@ object RadialMenuGeometry {
                     }
 
                     if (hasOverflow && !isOverflowExpanded) {
-                        val moreAngle = startAngle + displayedCategories.size * step
+                        val moreAngle = -170f * (PI.toFloat() / 180f)
                         morePos = Offset(radiusPx * cos(moreAngle), radiusPx * sin(moreAngle))
                     }
                 }
 
-                val deletePos = Offset(0f, radiusPx * 0.96f)
-                val shareDeg = if (isLeftHanded) 140f else 40f
-                val shareAngle = shareDeg * (PI.toFloat() / 180f)
+                // Delete target placed leftward from bubble (-185°)
+                val deleteAngle = -185f * (PI.toFloat() / 180f)
+                val deletePos = Offset(radiusPx * cos(deleteAngle), radiusPx * sin(deleteAngle))
+
+                // Share target placed upward from bubble (-80°)
+                val shareAngle = -80f * (PI.toFloat() / 180f)
                 val sharePos = Offset(radiusPx * cos(shareAngle), radiusPx * sin(shareAngle))
 
                 return RadialTargetLayout(
@@ -204,36 +144,43 @@ object RadialMenuGeometry {
                 )
             }
 
-            ArcDesignStyle.DIAL -> {
-                // Segmented Dial mode: Tactile radial dial sectors
-                val spanStartDeg = if (isLeftHanded) 45f else 135f
-                val spanEndDeg = if (isLeftHanded) -135f else 405f
-                val spanStart = spanStartDeg * (PI.toFloat() / 180f)
-                val spanEnd = spanEndDeg * (PI.toFloat() / 180f)
-                val totalSpan = spanEnd - spanStart
+            OverlayEdgeAnchor.BOTTOM_LEFT -> {
+                // Anchored to bottom-left corner bubble: expand inward into the upper-right quadrant
+                val (startDeg, endDeg) = Pair(-80f, -15f)
                 val count = displayedCategories.size + (if (hasOverflow && !isOverflowExpanded) 1 else 0)
-                val step = if (count > 1) totalSpan / (count - 1) else 0f
 
-                displayedCategories.forEachIndexed { i, cat ->
-                    val isOuter = isOverflowExpanded && i >= 5
-                    val effectiveRadius = if (isOuter) radiusPx * 1.35f else radiusPx
-                    val a = if (isOuter) {
-                        val outerStep = totalSpan / (total - 5).coerceAtLeast(1)
-                        spanStart + (i - 5) * outerStep
-                    } else {
-                        if (count == 1) -PI.toFloat() / 2f else spanStart + i * step
+                if (count == 1) {
+                    val angle = -45f * (PI.toFloat() / 180f)
+                    catPositions.add(displayedCategories[0] to Offset(radiusPx * cos(angle), radiusPx * sin(angle)))
+                } else if (count > 1) {
+                    val startAngle = startDeg * (PI.toFloat() / 180f)
+                    val endAngle = endDeg * (PI.toFloat() / 180f)
+                    val step = (endAngle - startAngle) / (count - 1)
+
+                    displayedCategories.forEachIndexed { i, cat ->
+                        val isOuter = isOverflowExpanded && i >= 5
+                        val effectiveRadius = if (isOuter) radiusPx * 1.35f else radiusPx
+                        val a = if (isOuter) {
+                            val outerStep = (endAngle - startAngle) / (total - 5).coerceAtLeast(1)
+                            startAngle + (i - 5) * outerStep
+                        } else {
+                            startAngle + i * step
+                        }
+                        catPositions.add(cat to Offset(effectiveRadius * cos(a), effectiveRadius * sin(a)))
                     }
-                    catPositions.add(cat to Offset(effectiveRadius * cos(a), effectiveRadius * sin(a)))
+
+                    if (hasOverflow && !isOverflowExpanded) {
+                        val moreAngle = -10f * (PI.toFloat() / 180f)
+                        morePos = Offset(radiusPx * cos(moreAngle), radiusPx * sin(moreAngle))
+                    }
                 }
 
-                if (hasOverflow && !isOverflowExpanded) {
-                    val moreAngle = spanStart + displayedCategories.size * step
-                    morePos = Offset(radiusPx * cos(moreAngle), radiusPx * sin(moreAngle))
-                }
+                // Delete target placed rightward from bubble (-5°)
+                val deleteAngle = -5f * (PI.toFloat() / 180f)
+                val deletePos = Offset(radiusPx * cos(deleteAngle), radiusPx * sin(deleteAngle))
 
-                val deletePos = Offset(0f, radiusPx)
-                val shareDeg = if (isLeftHanded) 145f else 35f
-                val shareAngle = shareDeg * (PI.toFloat() / 180f)
+                // Share target placed upward from bubble (-100°)
+                val shareAngle = -100f * (PI.toFloat() / 180f)
                 val sharePos = Offset(radiusPx * cos(shareAngle), radiusPx * sin(shareAngle))
 
                 return RadialTargetLayout(
@@ -245,6 +192,163 @@ object RadialMenuGeometry {
                     suggestedCategoryId = suggestedCategoryId,
                     overflowCategories = overflowList
                 )
+            }
+
+            OverlayEdgeAnchor.CENTER, OverlayEdgeAnchor.AUTO -> {
+                when (style) {
+                    ArcDesignStyle.ORBIT -> {
+                        // Orbit mode: Distributes nodes along upper and side quadrant.
+                        // Left handed fans rightward (-15° to -165° inverted), Right handed fans leftward.
+                        val (startDeg, endDeg) = if (isLeftHanded) {
+                            Pair(-15f, -165f)
+                        } else {
+                            Pair(-165f, -15f)
+                        }
+
+                        val count = displayedCategories.size + (if (hasOverflow && !isOverflowExpanded) 1 else 0)
+
+                        if (count == 1) {
+                            val angle = -PI.toFloat() / 2f
+                            catPositions.add(displayedCategories[0] to Offset(radiusPx * cos(angle), radiusPx * sin(angle)))
+                        } else if (count > 1) {
+                            val startAngle = startDeg * (PI.toFloat() / 180f)
+                            val endAngle = endDeg * (PI.toFloat() / 180f)
+                            val step = (endAngle - startAngle) / (count - 1)
+
+                            displayedCategories.forEachIndexed { i, cat ->
+                                // If dual ring when expanded and total > 6
+                                val isOuter = isOverflowExpanded && i >= 5
+                                val effectiveRadius = if (isOuter) radiusPx * 1.38f else radiusPx
+                                val a = if (isOuter) {
+                                    val outerStep = (endAngle - startAngle) / (total - 5).coerceAtLeast(1)
+                                    startAngle + (i - 5) * outerStep
+                                } else {
+                                    startAngle + i * step
+                                }
+                                catPositions.add(cat to Offset(effectiveRadius * cos(a), effectiveRadius * sin(a)))
+                            }
+
+                            if (hasOverflow && !isOverflowExpanded) {
+                                val moreAngle = startAngle + displayedCategories.size * step
+                                morePos = Offset(radiusPx * cos(moreAngle), radiusPx * sin(moreAngle))
+                            }
+                        }
+
+                        // Delete target at bottom center (+90°)
+                        val deleteAngle = PI.toFloat() / 2f
+                        val deletePos = Offset(radiusPx * cos(deleteAngle), radiusPx * sin(deleteAngle))
+
+                        // Share target positioned opposite to primary thumb reach
+                        val shareDeg = if (isLeftHanded) 38f else 142f
+                        val shareAngle = shareDeg * (PI.toFloat() / 180f)
+                        val sharePos = Offset(radiusPx * cos(shareAngle), radiusPx * sin(shareAngle))
+
+                        return RadialTargetLayout(
+                            categoriesWithPos = catPositions,
+                            deletePos = deletePos,
+                            sharePos = sharePos,
+                            morePos = morePos,
+                            isDualRing = isOverflowExpanded && total > 6,
+                            suggestedCategoryId = suggestedCategoryId,
+                            overflowCategories = overflowList
+                        )
+                    }
+
+                    ArcDesignStyle.FAN -> {
+                        // Fan Arc mode: Ergonomic 180° semi-circle blooming above center (-170° to -10°)
+                        val (startDeg, endDeg) = if (isLeftHanded) {
+                            Pair(-10f, -170f)
+                        } else {
+                            Pair(-170f, -10f)
+                        }
+
+                        val count = displayedCategories.size + (if (hasOverflow && !isOverflowExpanded) 1 else 0)
+
+                        if (count == 1) {
+                            val angle = -PI.toFloat() / 2f
+                            catPositions.add(displayedCategories[0] to Offset(radiusPx * cos(angle), radiusPx * sin(angle)))
+                        } else if (count > 1) {
+                            val startAngle = startDeg * (PI.toFloat() / 180f)
+                            val endAngle = endDeg * (PI.toFloat() / 180f)
+                            val step = (endAngle - startAngle) / (count - 1)
+
+                            displayedCategories.forEachIndexed { i, cat ->
+                                val isOuter = isOverflowExpanded && i >= 5
+                                val effectiveRadius = if (isOuter) radiusPx * 1.35f else radiusPx
+                                val a = if (isOuter) {
+                                    val outerStep = (endAngle - startAngle) / (total - 5).coerceAtLeast(1)
+                                    startAngle + (i - 5) * outerStep
+                                } else {
+                                    startAngle + i * step
+                                }
+                                catPositions.add(cat to Offset(effectiveRadius * cos(a), effectiveRadius * sin(a)))
+                            }
+
+                            if (hasOverflow && !isOverflowExpanded) {
+                                val moreAngle = startAngle + displayedCategories.size * step
+                                morePos = Offset(radiusPx * cos(moreAngle), radiusPx * sin(moreAngle))
+                            }
+                        }
+
+                        val deletePos = Offset(0f, radiusPx * 0.96f)
+                        val shareDeg = if (isLeftHanded) 140f else 40f
+                        val shareAngle = shareDeg * (PI.toFloat() / 180f)
+                        val sharePos = Offset(radiusPx * cos(shareAngle), radiusPx * sin(shareAngle))
+
+                        return RadialTargetLayout(
+                            categoriesWithPos = catPositions,
+                            deletePos = deletePos,
+                            sharePos = sharePos,
+                            morePos = morePos,
+                            isDualRing = isOverflowExpanded && total > 6,
+                            suggestedCategoryId = suggestedCategoryId,
+                            overflowCategories = overflowList
+                        )
+                    }
+
+                    ArcDesignStyle.DIAL -> {
+                        // Segmented Dial mode: Tactile radial dial sectors
+                        val spanStartDeg = if (isLeftHanded) 45f else 135f
+                        val spanEndDeg = if (isLeftHanded) -135f else 405f
+                        val spanStart = spanStartDeg * (PI.toFloat() / 180f)
+                        val spanEnd = spanEndDeg * (PI.toFloat() / 180f)
+                        val totalSpan = spanEnd - spanStart
+                        val count = displayedCategories.size + (if (hasOverflow && !isOverflowExpanded) 1 else 0)
+                        val step = if (count > 1) totalSpan / (count - 1) else 0f
+
+                        displayedCategories.forEachIndexed { i, cat ->
+                            val isOuter = isOverflowExpanded && i >= 5
+                            val effectiveRadius = if (isOuter) radiusPx * 1.35f else radiusPx
+                            val a = if (isOuter) {
+                                val outerStep = totalSpan / (total - 5).coerceAtLeast(1)
+                                spanStart + (i - 5) * outerStep
+                            } else {
+                                if (count == 1) -PI.toFloat() / 2f else spanStart + i * step
+                            }
+                            catPositions.add(cat to Offset(effectiveRadius * cos(a), effectiveRadius * sin(a)))
+                        }
+
+                        if (hasOverflow && !isOverflowExpanded) {
+                            val moreAngle = spanStart + displayedCategories.size * step
+                            morePos = Offset(radiusPx * cos(moreAngle), radiusPx * sin(moreAngle))
+                        }
+
+                        val deletePos = Offset(0f, radiusPx)
+                        val shareDeg = if (isLeftHanded) 145f else 35f
+                        val shareAngle = shareDeg * (PI.toFloat() / 180f)
+                        val sharePos = Offset(radiusPx * cos(shareAngle), radiusPx * sin(shareAngle))
+
+                        return RadialTargetLayout(
+                            categoriesWithPos = catPositions,
+                            deletePos = deletePos,
+                            sharePos = sharePos,
+                            morePos = morePos,
+                            isDualRing = isOverflowExpanded && total > 6,
+                            suggestedCategoryId = suggestedCategoryId,
+                            overflowCategories = overflowList
+                        )
+                    }
+                }
             }
         }
     }

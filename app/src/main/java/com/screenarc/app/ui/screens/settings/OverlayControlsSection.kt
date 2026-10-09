@@ -333,30 +333,6 @@ fun OverlayControlsSection(
                                 }
                             )
                         }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Auto Expand Arc
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Auto-Expand Arc on Detection", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
-                                Text(
-                                    text = "Immediately unfold the radial menu when a new screenshot is detected",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Switch(
-                                checked = settings.autoExpandOnCapture,
-                                onCheckedChange = { isChecked ->
-                                    settingsRepo.updateSettings { it.copy(autoExpandOnCapture = isChecked) }
-                                }
-                            )
-                        }
                     }
                 }
             }

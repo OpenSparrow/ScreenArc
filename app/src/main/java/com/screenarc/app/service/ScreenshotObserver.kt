@@ -31,7 +31,18 @@ class ScreenshotObserver(
 
     fun markProcessed(id: Long, uri: Uri? = null) {
         processedIds.add(id)
-        uri?.let { processedUris.add(it.toString()) }
+        excludeId(id)
+        uri?.let {
+            processedUris.add(it.toString())
+            excludeUri(it)
+        }
+    }
+
+    /** Marks a URI as handled without knowing its MediaStore id (e.g. a copy the
+     *  app itself wrote to Pictures/Screenshots) so it is never re-detected. */
+    fun markProcessedUri(uri: Uri) {
+        processedUris.add(uri.toString())
+        excludeUri(uri)
     }
 
     override fun onChange(selfChange: Boolean, uri: Uri?) {
@@ -130,9 +141,10 @@ class ScreenshotObserver(
                         return
                     }
 
-                    // Check if already processed
+                    // Check if already processed or excluded
                     val contentUri = ContentUris.withAppendedId(collection, id)
-                    if (processedIds.contains(id) || processedUris.contains(contentUri.toString())) {
+                    if (processedIds.contains(id) || processedUris.contains(contentUri.toString()) || isExcluded(id, contentUri, name)) {
+                        markProcessed(id, contentUri)
                         continue
                     }
 
@@ -149,6 +161,18 @@ class ScreenshotObserver(
 
                     if (isCategorizedSubfolder) {
                         Log.d(TAG, "Ignoring screenshot in categorized subfolder: $path")
+                        markProcessed(id, contentUri)
+                        continue
+                    }
+
+                    // Ignore internally generated / edited screenshots (redacted, edited, screenarc)
+                    val isInternallyGenerated = name.contains("redacted", ignoreCase = true) ||
+                            name.contains("screenarc", ignoreCase = true) ||
+                            name.contains("_edited", ignoreCase = true) ||
+                            name.startsWith("screenshot_redacted", ignoreCase = true)
+
+                    if (isInternallyGenerated) {
+                        Log.d(TAG, "Ignoring internally generated / redacted screenshot: $name")
                         markProcessed(id, contentUri)
                         continue
                     }
@@ -206,5 +230,44 @@ class ScreenshotObserver(
 
     companion object {
         private const val TAG = "ScreenshotObserver"
+
+        private val globalExcludedIds = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
+        private val globalExcludedUris = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+        private val globalExcludedFileNames = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+        fun excludeUri(uri: Uri) {
+            val uriStr = uri.toString()
+            globalExcludedUris.add(uriStr)
+            uri.lastPathSegment?.toLongOrNull()?.let { globalExcludedIds.add(it) }
+            if (uriStr.contains("external_primary")) {
+                globalExcludedUris.add(uriStr.replace("external_primary", "external"))
+            } else if (uriStr.contains("/external/")) {
+                globalExcludedUris.add(uriStr.replace("/external/", "/external_primary/"))
+            }
+        }
+
+        fun excludeId(id: Long) {
+            globalExcludedIds.add(id)
+        }
+
+        fun excludeFileName(fileName: String) {
+            globalExcludedFileNames.add(fileName.lowercase())
+        }
+
+        fun isExcluded(id: Long, uri: Uri?, name: String?): Boolean {
+            if (globalExcludedIds.contains(id)) return true
+            if (uri != null) {
+                val uriStr = uri.toString()
+                if (globalExcludedUris.contains(uriStr)) return true
+                if (uriStr.contains("external_primary") && globalExcludedUris.contains(uriStr.replace("external_primary", "external"))) return true
+                if (uriStr.contains("/external/") && globalExcludedUris.contains(uriStr.replace("/external/", "/external_primary/"))) return true
+            }
+            if (!name.isNullOrBlank()) {
+                val lower = name.lowercase()
+                if (globalExcludedFileNames.contains(lower)) return true
+                if (lower.contains("redacted") || lower.contains("screenarc") || lower.contains("_edited") || lower.startsWith("screenshot_redacted")) return true
+            }
+            return false
+        }
     }
 }
