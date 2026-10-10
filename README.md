@@ -1,7 +1,8 @@
 # ScreenArc (Screenshot Sorter & Multilingual OCR)
 
 ScreenArc is an intelligent, privacy-focused Android application designed to automatically detect, organize, OCR-index, and search screenshots seamlessly using an adaptive floating overlay service, Google ML Kit on-device Text Recognition, automated keyword categorization rules, bulk management, and Jetpack Compose.
-[![Build Android APK](https://github.com/Arunkumar-Anbazhagan/ScreenArc/actions/workflows/build-apk.yml/badge.svg)](https://github.com/Arunkumar-Anbazhagan/ScreenArc/actions/workflows/build-apk.yml)
+
+[![Android CI/CD - Build & Release](https://github.com/Arunkumar-Anbazhagan/ScreenArc/actions/workflows/build_and_release.yml/badge.svg)](https://github.com/Arunkumar-Anbazhagan/ScreenArc/actions/workflows/build_and_release.yml)
 ---
 
 ## 📸 Screenshots & Walkthrough
