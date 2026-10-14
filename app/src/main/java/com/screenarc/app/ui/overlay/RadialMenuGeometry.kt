@@ -102,20 +102,20 @@ object RadialMenuGeometry {
         when (edgeAnchor) {
             OverlayEdgeAnchor.BOTTOM_RIGHT -> {
                 // Layer 1 (Inner Arc - Actions: Copy, Share, Share & Delete, Delete)
-                val innerRadius = radiusPx * 0.60f
-                val copyAngle = -80f * (PI.toFloat() / 180f)
-                val shareAngle = -112f * (PI.toFloat() / 180f)
-                val shareAndDelAngle = -145f * (PI.toFloat() / 180f)
-                val deleteAngle = -178f * (PI.toFloat() / 180f)
+                val innerRadius = radiusPx * 0.62f
+                val copyAngle = -92f * (PI.toFloat() / 180f)
+                val shareAngle = -120f * (PI.toFloat() / 180f)
+                val shareAndDelAngle = -148f * (PI.toFloat() / 180f)
+                val deleteAngle = -176f * (PI.toFloat() / 180f)
 
                 val copyPos = Offset(innerRadius * cos(copyAngle), innerRadius * sin(copyAngle))
                 val sharePos = Offset(innerRadius * cos(shareAngle), innerRadius * sin(shareAngle))
                 val shareAndDeletePos = Offset(innerRadius * cos(shareAndDelAngle), innerRadius * sin(shareAndDelAngle))
                 val deletePos = Offset(innerRadius * cos(deleteAngle), innerRadius * sin(deleteAngle))
 
-                // Layer 2 (Outer Arc - Categories)
-                val outerRadius = radiusPx * 1.15f
-                val (startDeg, endDeg) = Pair(-96f, -172f)
+                // Layer 2 (Outer Arc - Categories structured in a fluid, circular arc)
+                val outerRadius = radiusPx * 1.35f
+                val (startDeg, endDeg) = Pair(-91f, -179f)
                 val count = displayedCategories.size + (if (hasOverflow && !isOverflowExpanded) 1 else 0)
 
                 if (count == 1) {
@@ -128,7 +128,7 @@ object RadialMenuGeometry {
 
                     displayedCategories.forEachIndexed { i, cat ->
                         val isOuter = isOverflowExpanded && i >= 5
-                        val effectiveRadius = if (isOuter) outerRadius * 1.28f else outerRadius
+                        val effectiveRadius = if (isOuter) outerRadius * 1.30f else outerRadius
                         val a = if (isOuter) {
                             val outerStep = (endAngle - startAngle) / (total - 5).coerceAtLeast(1)
                             startAngle + (i - 5) * outerStep
@@ -139,7 +139,7 @@ object RadialMenuGeometry {
                     }
 
                     if (hasOverflow && !isOverflowExpanded) {
-                        val moreAngle = -175f * (PI.toFloat() / 180f)
+                        val moreAngle = -179f * (PI.toFloat() / 180f)
                         morePos = Offset(outerRadius * cos(moreAngle), outerRadius * sin(moreAngle))
                     }
                 }
@@ -161,10 +161,10 @@ object RadialMenuGeometry {
 
             OverlayEdgeAnchor.BOTTOM_LEFT -> {
                 // Anchored to bottom-left corner bubble: expand inward into the upper-right quadrant
-                val innerRadius = radiusPx * 0.60f
-                val copyAngle = -100f * (PI.toFloat() / 180f)
-                val shareAngle = -68f * (PI.toFloat() / 180f)
-                val shareAndDelAngle = -35f * (PI.toFloat() / 180f)
+                val innerRadius = radiusPx * 0.62f
+                val copyAngle = -86f * (PI.toFloat() / 180f)
+                val shareAngle = -58f * (PI.toFloat() / 180f)
+                val shareAndDelAngle = -30f * (PI.toFloat() / 180f)
                 val deleteAngle = -2f * (PI.toFloat() / 180f)
 
                 val copyPos = Offset(innerRadius * cos(copyAngle), innerRadius * sin(copyAngle))
@@ -172,8 +172,8 @@ object RadialMenuGeometry {
                 val shareAndDeletePos = Offset(innerRadius * cos(shareAndDelAngle), innerRadius * sin(shareAndDelAngle))
                 val deletePos = Offset(innerRadius * cos(deleteAngle), innerRadius * sin(deleteAngle))
 
-                val outerRadius = radiusPx * 1.15f
-                val (startDeg, endDeg) = Pair(-84f, -8f)
+                val outerRadius = radiusPx * 1.35f
+                val (startDeg, endDeg) = Pair(-89f, -1f)
                 val count = displayedCategories.size + (if (hasOverflow && !isOverflowExpanded) 1 else 0)
 
                 if (count == 1) {
@@ -186,7 +186,7 @@ object RadialMenuGeometry {
 
                     displayedCategories.forEachIndexed { i, cat ->
                         val isOuter = isOverflowExpanded && i >= 5
-                        val effectiveRadius = if (isOuter) outerRadius * 1.28f else outerRadius
+                        val effectiveRadius = if (isOuter) outerRadius * 1.30f else outerRadius
                         val a = if (isOuter) {
                             val outerStep = (endAngle - startAngle) / (total - 5).coerceAtLeast(1)
                             startAngle + (i - 5) * outerStep
@@ -197,7 +197,7 @@ object RadialMenuGeometry {
                     }
 
                     if (hasOverflow && !isOverflowExpanded) {
-                        val moreAngle = -5f * (PI.toFloat() / 180f)
+                        val moreAngle = -1f * (PI.toFloat() / 180f)
                         morePos = Offset(outerRadius * cos(moreAngle), outerRadius * sin(moreAngle))
                     }
                 }
@@ -446,6 +446,27 @@ object RadialMenuGeometry {
         }
 
         return closestCat?.let { HoverTarget.Category(it) }
+    }
+
+    /**
+     * Determines whether a touch point (relative to the menu anchor/origin) is within the
+     * active radial menu's interactive bounding area.
+     * Touches outside this area can immediately collapse the menu and pass through to underlying apps.
+     */
+    fun isPointInsideRadialMenu(
+        offsetFromAnchor: Offset,
+        outerRadiusPx: Float,
+        paddingPx: Float = 48f
+    ): Boolean {
+        val distance = offsetFromAnchor.getDistance()
+        // Active interactive radius with safety padding
+        val maxInteractiveRadius = outerRadiusPx + paddingPx
+        if (distance > maxInteractiveRadius) return false
+
+        // Within minimum center bubble distance
+        if (distance < 50f) return true
+
+        return true
     }
 }
 

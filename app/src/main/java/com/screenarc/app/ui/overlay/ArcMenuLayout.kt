@@ -114,23 +114,35 @@ fun ArcMenuLayout(
     val isRtl = layoutDirection == LayoutDirection.Rtl
     val radiusPx = with(density) { radiusDp.toPx() }
 
-    // Staggered 2-Layer spring expansion animation
+    // Synchronized dismiss & appearance easing
+    val fluidEasing = androidx.compose.animation.core.CubicBezierEasing(0.4f, 0.0f, 0.2f, 1.0f)
+
+    // Staggered 2-Layer fluid expansion and synchronized collapse animation
     val layer1Progress by animateFloatAsState(
         targetValue = if (isExpanded) 1f else 0f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMedium
-        ),
+        animationSpec = if (isExpanded) {
+            spring(dampingRatio = 0.72f, stiffness = 420f)
+        } else {
+            tween(durationMillis = 200, easing = fluidEasing)
+        },
         label = "Layer1ExpansionProgress"
     )
 
     val layer2Progress by animateFloatAsState(
         targetValue = if (isExpanded) 1f else 0f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
-        ),
+        animationSpec = if (isExpanded) {
+            spring(dampingRatio = 0.70f, stiffness = 340f)
+        } else {
+            tween(durationMillis = 200, easing = fluidEasing)
+        },
         label = "Layer2ExpansionProgress"
+    )
+
+    // Synchronize connector line lifecycle tightly with drag activity and menu expansion
+    val lineDismissProgress by animateFloatAsState(
+        targetValue = if (isExpanded) 1f else 0f,
+        animationSpec = tween(durationMillis = 180, easing = fluidEasing),
+        label = "LineDismissProgress"
     )
 
     val infiniteTransition = rememberInfiniteTransition(label = "SuggestedAndWarningPulse")
@@ -182,38 +194,40 @@ fun ArcMenuLayout(
                 val centerOffset = Offset(size.width / 2f + anchorOffset.x, size.height / 2f + anchorOffset.y)
 
                 // Track Arc 1 (Inner Action Layer)
-                val track1Radius = (if (layout.innerRadiusPx > 0f) layout.innerRadiusPx else radiusPx * 0.6f) * layer1Progress
+                val track1Radius = (if (layout.innerRadiusPx > 0f) layout.innerRadiusPx else radiusPx * 0.62f) * layer1Progress
                 if (track1Radius > 10f) {
                     drawCircle(
-                        color = primaryColor.copy(alpha = 0.10f * layer1Progress),
+                        color = primaryColor.copy(alpha = 0.12f * layer1Progress),
                         radius = track1Radius,
                         center = centerOffset,
                         style = Stroke(
                             width = 1.5.dp.toPx(),
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 10f))
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 8f))
                         )
                     )
                 }
 
-                // Track Arc 2 (Outer Categories Layer)
-                val track2Radius = (if (layout.outerRadiusPx > 0f) layout.outerRadiusPx else radiusPx * 1.15f) * layer2Progress
+                // Track Arc 2 (Outer Categories Layer - Circular Track)
+                val track2Radius = (if (layout.outerRadiusPx > 0f) layout.outerRadiusPx else radiusPx * 1.35f) * layer2Progress
                 if (track2Radius > 10f) {
                     drawCircle(
                         color = (if (dynamicPaletteEnabled) paletteColors.vibrant else primaryColor).copy(
-                            alpha = 0.16f * layer2Progress
+                            alpha = 0.14f * layer2Progress
                         ),
                         radius = track2Radius,
                         center = centerOffset,
                         style = Stroke(
-                            width = 2.0.dp.toPx(),
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 12f))
+                            width = 1.8.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))
                         )
                     )
                 }
 
                 // Dynamic Laser Beam from Dragged Item to Active Target
+                // Synchronized tightly with lineDismissProgress and layer progresses
+                val effectiveLineAlpha = lineDismissProgress * (layer1Progress.coerceAtMost(layer2Progress))
                 val dragDistance = sqrt(dragOffsetPx.x * dragOffsetPx.x + dragOffsetPx.y * dragOffsetPx.y)
-                if (dragDistance > 12.dp.toPx()) {
+                if (dragDistance > 12.dp.toPx() && effectiveLineAlpha > 0.02f) {
                     val draggedScreenPoint = centerOffset + dragOffsetPx
 
                     val activeTargetPoint: Offset? = when {
@@ -244,28 +258,28 @@ fun ArcMenuLayout(
 
                         // Wide glowing aura
                         drawLine(
-                            color = beamColor.copy(alpha = 0.35f),
+                            color = beamColor.copy(alpha = 0.28f * effectiveLineAlpha),
                             start = draggedScreenPoint,
                             end = activeTargetPoint,
-                            strokeWidth = 9.dp.toPx(),
+                            strokeWidth = 6.dp.toPx() * effectiveLineAlpha,
                             cap = StrokeCap.Round
                         )
                         // Core laser
                         drawLine(
-                            color = beamColor,
+                            color = beamColor.copy(alpha = effectiveLineAlpha),
                             start = draggedScreenPoint,
                             end = activeTargetPoint,
-                            strokeWidth = 3.dp.toPx(),
+                            strokeWidth = 2.dp.toPx() * effectiveLineAlpha,
                             cap = StrokeCap.Round
                         )
                     } else {
                         // Elastic tether to origin
                         drawLine(
-                            color = primaryColor.copy(alpha = 0.22f),
+                            color = primaryColor.copy(alpha = 0.20f * effectiveLineAlpha),
                             start = centerOffset,
                             end = draggedScreenPoint,
-                            strokeWidth = 1.5.dp.toPx(),
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f)),
+                            strokeWidth = 1.5.dp.toPx() * effectiveLineAlpha,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f)),
                             cap = StrokeCap.Round
                         )
                     }
@@ -512,18 +526,19 @@ fun ArcMenuLayout(
                 }
             }
 
-            // ─── Layer 2 (Outer Arc): Overlapping Category Capsules ──────────────────
+            // ─── Layer 2 (Outer Arc): Structured Circular Category Capsules ──────────────────
 
             layout.categoriesWithPos.forEachIndexed { index, (category, baseOffset) ->
                 val isHovered = hoveredCategoryId == category.id
                 val isSuggested = layout.suggestedCategoryId == category.id
 
-                val xPx = baseOffset.x * layer2Progress
-                val yPx = baseOffset.y * layer2Progress
+                val waveProgress = (layer2Progress * 1.12f - (index * 0.025f)).coerceIn(0f, 1f)
+                val xPx = baseOffset.x * waveProgress
+                val yPx = baseOffset.y * waveProgress
 
                 val chipScale by animateFloatAsState(
                     targetValue = when {
-                        isHovered -> 1.35f
+                        isHovered -> 1.30f
                         isSuggested -> 1.08f * suggestedGlowPulse
                         else -> 1.0f
                     },
@@ -560,9 +575,9 @@ fun ArcMenuLayout(
                 Surface(
                     modifier = Modifier
                         .offset { IntOffset((anchorOffset.x + xPx).roundToInt(), (anchorOffset.y + yPx).roundToInt()) }
-                        .scale(chipScale * layer2Progress)
-                        .shadow(chipElevation, shape = RoundedCornerShape(22.dp), clip = false)
-                        .clip(RoundedCornerShape(22.dp))
+                        .scale(chipScale * waveProgress)
+                        .shadow(chipElevation, shape = RoundedCornerShape(20.dp), clip = false)
+                        .clip(RoundedCornerShape(20.dp))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
@@ -587,42 +602,42 @@ fun ArcMenuLayout(
                             contentDescription = "${category.name} category"
                             stateDescription = if (isHovered) "Highlighted" else if (isSuggested) "Suggested" else "Available"
                         },
-                    shape = RoundedCornerShape(22.dp),
+                    shape = RoundedCornerShape(20.dp),
                     color = containerColor,
                     border = BorderStroke(
-                        width = if (isHovered) 2.6.dp else if (isSuggested) 2.0.dp else 1.3.dp,
+                        width = if (isHovered) 2.4.dp else if (isSuggested) 1.8.dp else 1.2.dp,
                         color = targetBorderColor
                     )
                 ) {
                     Row(
                         modifier = Modifier
-                            .widthIn(min = 105.dp, max = 135.dp)
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .widthIn(min = 66.dp, max = 76.dp)
+                            .padding(horizontal = 7.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Start
                     ) {
                         Surface(
                             shape = CircleShape,
                             color = if (isHovered) Color.White else category.composeColor,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(18.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = category.getIcon(),
                                     contentDescription = null,
                                     tint = if (isHovered) category.composeColor else Color.White,
-                                    modifier = Modifier.size(13.dp)
+                                    modifier = Modifier.size(11.dp)
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
 
                         Text(
                             text = category.name,
                             style = MaterialTheme.typography.labelLarge.copy(
                                 fontWeight = if (isHovered || isSuggested) FontWeight.ExtraBold else FontWeight.Bold,
-                                fontSize = if (isHovered) 13.sp else 12.sp
+                                fontSize = 11.sp
                             ),
                             color = if (isHovered) (if (dynamicPaletteEnabled) paletteColors.vibrantDark else Color.White) else MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
@@ -630,12 +645,12 @@ fun ArcMenuLayout(
                         )
 
                         if (isSuggested && !isHovered) {
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(2.dp))
                             Icon(
                                 imageVector = Icons.Default.AutoAwesome,
                                 contentDescription = "Suggested",
                                 tint = category.composeColor,
-                                modifier = Modifier.size(12.dp)
+                                modifier = Modifier.size(10.dp)
                             )
                         }
                     }
@@ -645,11 +660,12 @@ fun ArcMenuLayout(
             // ─── Overflow "+ More" Node (When categories > 6) ────────────────────────
             layout.morePos?.let { mPos ->
                 val isHovered = isMoreHovered
-                val xPx = mPos.x * layer2Progress
-                val yPx = mPos.y * layer2Progress
+                val waveProgress = (layer2Progress * 1.12f - (layout.categoriesWithPos.size * 0.025f)).coerceIn(0f, 1f)
+                val xPx = mPos.x * waveProgress
+                val yPx = mPos.y * waveProgress
 
                 val moreScale by animateFloatAsState(
-                    targetValue = if (isHovered) 1.35f else 1.0f,
+                    targetValue = if (isHovered) 1.30f else 1.0f,
                     animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
                     label = "MoreScale"
                 )
@@ -657,9 +673,9 @@ fun ArcMenuLayout(
                 Surface(
                     modifier = Modifier
                         .offset { IntOffset((anchorOffset.x + xPx).roundToInt(), (anchorOffset.y + yPx).roundToInt()) }
-                        .scale(moreScale * layer2Progress)
-                        .shadow(if (isHovered) 16.dp else 4.dp, shape = RoundedCornerShape(22.dp), clip = false)
-                        .clip(RoundedCornerShape(22.dp))
+                        .scale(moreScale * waveProgress)
+                        .shadow(if (isHovered) 16.dp else 4.dp, shape = RoundedCornerShape(20.dp), clip = false)
+                        .clip(RoundedCornerShape(20.dp))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
@@ -672,36 +688,38 @@ fun ArcMenuLayout(
                         else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f)
                     },
                     border = BorderStroke(
-                        width = if (isHovered) 2.5.dp else 1.2.dp,
+                        width = if (isHovered) 2.4.dp else 1.2.dp,
                         color = if (isHovered) Color.White else primaryColor.copy(alpha = 0.65f)
                     )
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        modifier = Modifier
+                            .widthIn(min = 66.dp, max = 76.dp)
+                            .padding(horizontal = 7.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Surface(
                             shape = CircleShape,
                             color = if (isHovered) Color.White else primaryColor,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(18.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.MoreHoriz,
                                     contentDescription = null,
                                     tint = if (isHovered) primaryColor else Color.White,
-                                    modifier = Modifier.size(14.dp)
+                                    modifier = Modifier.size(12.dp)
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
 
                         Text(
-                            text = "+${layout.overflowCategories.size} More",
+                            text = "+${layout.overflowCategories.size}",
                             style = MaterialTheme.typography.labelLarge.copy(
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
+                                fontSize = 11.sp
                             ),
                             color = if (isHovered) Color.White else MaterialTheme.colorScheme.onSurface
                         )

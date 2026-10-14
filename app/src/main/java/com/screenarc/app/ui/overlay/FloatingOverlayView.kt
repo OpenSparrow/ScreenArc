@@ -161,8 +161,18 @@ fun FloatingOverlayView(
     val isExpanded = phase == OverlayPhase.ARC_EXPANDED
     val showUndoNotification = phase == OverlayPhase.UNDO_NOTIFICATION
 
+    // Gate visibility of the undo banner to ensure WindowManager's updateViewLayout IPC
+    // finishes moving the window to Gravity.BOTTOM before Compose renders the banner
+    var isUndoVisible by remember { mutableStateOf(false) }
+
     LaunchedEffect(phase) {
         onPhaseChanged(phase)
+        if (phase == OverlayPhase.UNDO_NOTIFICATION) {
+            delay(120)
+            isUndoVisible = true
+        } else {
+            isUndoVisible = false
+        }
     }
 
     // Drag offset & snapping (only active in ARC_EXPANDED phase)
@@ -170,23 +180,31 @@ fun FloatingOverlayView(
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
     var isDragging by remember { mutableStateOf(false) }
 
+    val fluidEasing = remember { androidx.compose.animation.core.CubicBezierEasing(0.4f, 0.0f, 0.2f, 1.0f) }
+
     val animatedDragX by animateFloatAsState(
         targetValue = dragOffsetX,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        ),
+        animationSpec = if (isDragging) {
+            spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh)
+        } else {
+            tween(durationMillis = 180, easing = fluidEasing)
+        },
         label = "AnimatedDragX"
     )
 
     val animatedDragY by animateFloatAsState(
         targetValue = dragOffsetY,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        ),
+        animationSpec = if (isDragging) {
+            spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh)
+        } else {
+            tween(durationMillis = 180, easing = fluidEasing)
+        },
         label = "AnimatedDragY"
     )
+
+    // Fluid drag offset: during active touch, tracks finger 1:1; upon release, rapidly snaps to 0 in sync with arc collapse
+    val currentDragX = if (isDragging) dragOffsetX else animatedDragX
+    val currentDragY = if (isDragging) dragOffsetY else animatedDragY
 
     // Bubble sizing
     val bubbleSize = settings.bubbleSizeDp.dp
@@ -194,25 +212,28 @@ fun FloatingOverlayView(
     val arcRadiusPx = with(density) { arcRadius.toPx() }
     val hitThresholdPx = with(density) { 56.dp.toPx() }
 
-    // Auto-dismiss countdown (only in BUBBLE and ARC_EXPANDED phases)
+    // Auto-dismiss countdown (only in BUBBLE phase; paused while user touches/expands arc, and resumes when dropped)
+    val totalMillis = remember(settings.autoDismissSeconds) { settings.autoDismissSeconds * 1000L }
+    var remainingMillis by remember { mutableStateOf(totalMillis) }
     var remainingSeconds by remember { mutableStateOf(settings.autoDismissSeconds) }
     var timerProgress by remember { mutableFloatStateOf(1.0f) }
 
-    LaunchedEffect(isDragging, isDismissing, successCategory, isDeleting, showUndoNotification) {
-        if (isDragging || isDismissing || successCategory != null || isDeleting || showUndoNotification) return@LaunchedEffect
-        val totalMillis = settings.autoDismissSeconds * 1000L
+    LaunchedEffect(phase, isDragging, isDismissing, successCategory, isDeleting, showUndoNotification) {
+        if (phase != OverlayPhase.BUBBLE || isDragging || isDismissing || successCategory != null || isDeleting || showUndoNotification) return@LaunchedEffect
         val interval = 50L
-        var elapsed = 0L
-
-        while (elapsed < totalMillis) {
+        // When resuming from an interaction, ensure at least 2.5s remaining so it doesn't instantly vanish
+        if (remainingMillis < 2500L) {
+            remainingMillis = 2500L
+        }
+        while (remainingMillis > 0L) {
             delay(interval)
-            elapsed += interval
-            timerProgress = 1.0f - (elapsed.toFloat() / totalMillis.toFloat())
-            remainingSeconds = (((totalMillis - elapsed) / 1000L) + 1).toInt()
+            remainingMillis = (remainingMillis - interval).coerceAtLeast(0L)
+            timerProgress = (remainingMillis.toFloat() / totalMillis.toFloat()).coerceIn(0f, 1f)
+            remainingSeconds = (((remainingMillis + 999L) / 1000L)).toInt()
         }
 
         isDismissing = true
-        delay(250)
+        delay(220)
         onDismiss()
     }
 
@@ -286,19 +307,33 @@ fun FloatingOverlayView(
             val anchorOffset = remember(cornerOffsetX, cornerOffsetY) { Offset(cornerOffsetX, cornerOffsetY) }
 
             // ─── Phase: BUBBLE — small corner circle, non-blocking ────────────
-            // The backdrop only blocks when arc is expanded (needs tap-to-dismiss)
-            if (isExpanded) {
-                // Semi-transparent scrim only when arc is open
+            // Fluid backdrop opacity transition: avoids sudden black flash on layout expand
+            val backdropAlpha by animateFloatAsState(
+                targetValue = if (isExpanded && !showUndoNotification) 0.12f else 0.0f,
+                animationSpec = tween(durationMillis = 220, easing = fluidEasing),
+                label = "BackdropAlpha"
+            )
+
+            if (backdropAlpha > 0.005f) {
+                // Subtle non-intrusive backdrop when arc is open (tap anywhere outside to collapse back to bubble)
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.35f))
+                        .background(Color.Black.copy(alpha = backdropAlpha))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) {
                             if (!isDismissing && !isDeleting && !showUndoNotification) {
-                                // Collapse arc back to bubble
+                                // Collapse arc back to bubble and resume timeout
+                                dragOffsetX = 0f
+                                dragOffsetY = 0f
+                                hoveredCategory = null
+                                isDeleteHovered = false
+                                isShareHovered = false
+                                isShareAndDeleteHovered = false
+                                isCopyHovered = false
+                                isMoreHovered = false
                                 phase = OverlayPhase.BUBBLE
                             }
                         }
@@ -310,7 +345,7 @@ fun FloatingOverlayView(
                 categories = orderedCategories,
                 isExpanded = isExpanded && !showUndoNotification,
                 radiusDp = arcRadius,
-                dragOffsetPx = Offset(animatedDragX, animatedDragY),
+                dragOffsetPx = Offset(currentDragX, currentDragY),
                 paletteColors = screenshot.paletteColors,
                 dynamicPaletteEnabled = settings.dynamicPaletteEnabled,
                 hoveredCategoryId = hoveredCategory?.id,
@@ -428,8 +463,8 @@ fun FloatingOverlayView(
                         .then(
                             if (isExpanded) {
                                 Modifier.offset {
-                                    val baseX = (anchorOffset.x + animatedDragX).roundToInt()
-                                    val baseY = (anchorOffset.y + animatedDragY).roundToInt()
+                                    val baseX = (anchorOffset.x + currentDragX).roundToInt()
+                                    val baseY = (anchorOffset.y + currentDragY).roundToInt()
                                     IntOffset(baseX, baseY)
                                 }
                             } else {
@@ -546,6 +581,8 @@ fun FloatingOverlayView(
                                                 phase = OverlayPhase.UNDO_NOTIFICATION
                                             }
                                         } else {
+                                            // Dropped in neutral space without selecting a target:
+                                            // Smoothly springs back to resting corner bubble and resumes timeout
                                             dragOffsetX = 0f
                                             dragOffsetY = 0f
                                             hoveredCategory = null
@@ -554,6 +591,7 @@ fun FloatingOverlayView(
                                             isShareAndDeleteHovered = false
                                             isCopyHovered = false
                                             isMoreHovered = false
+                                            phase = OverlayPhase.BUBBLE
                                         }
                                     },
                                     onDragCancel = {
@@ -566,6 +604,7 @@ fun FloatingOverlayView(
                                         isShareAndDeleteHovered = false
                                         isCopyHovered = false
                                         isMoreHovered = false
+                                        phase = OverlayPhase.BUBBLE
                                     }
                                 )
                             }
@@ -598,6 +637,8 @@ fun FloatingOverlayView(
                                     } else {
                                         // Collapse arc back to bubble
                                         phase = OverlayPhase.BUBBLE
+                                        dragOffsetX = 0f
+                                        dragOffsetY = 0f
                                     }
                                     triggerHapticFeedback(context, HapticType.ENTER)
                                 }
@@ -844,20 +885,31 @@ fun FloatingOverlayView(
                 }
             }
 
-            // ─── Undo Notification (bottom corner, non-blocking) ──────────────
+            // ─── Undo Notification (bottom center, non-blocking) ──────────────
             // Appears after categorization; user can still interact with the phone.
             // The overlay window stays up but is FLAG_NOT_TOUCH_MODAL so touches
             // outside this element pass through to apps underneath.
             AnimatedVisibility(
-                visible = showUndoNotification && successCategory != null,
-                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                visible = isUndoVisible && successCategory != null,
+                enter = slideInVertically(
+                    initialOffsetY = { it },
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                ) + fadeIn(animationSpec = tween(180)),
+                exit = slideOutVertically(
+                    targetOffsetY = { it },
+                    animationSpec = tween(180)
+                ) + fadeOut(animationSpec = tween(150)),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 24.dp, start = 16.dp, end = 16.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 var undoTimerSec by remember { mutableStateOf(5) }
-                LaunchedEffect(showUndoNotification) {
+                LaunchedEffect(isUndoVisible) {
+                    if (!isUndoVisible) return@LaunchedEffect
+                    undoTimerSec = 5
                     while (undoTimerSec > 0) {
                         delay(1000)
                         undoTimerSec--
@@ -906,6 +958,7 @@ fun FloatingOverlayView(
                             onClick = {
                                 successCategory?.let { onUndoMove?.invoke(it) }
                                 // After undo, go back to BUBBLE phase
+                                isUndoVisible = false
                                 successCategory = null
                                 phase = OverlayPhase.BUBBLE
                                 triggerHapticFeedback(context, HapticType.DROP)

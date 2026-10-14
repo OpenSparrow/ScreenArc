@@ -406,7 +406,7 @@ class OverlayService : Service() {
                                     layoutParams.height = WindowManager.LayoutParams.WRAP_CONTENT
                                     layoutParams.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
                                     layoutParams.x = 0
-                                    layoutParams.y = 0
+                                    layoutParams.y = (48 * d).toInt()
                                 }
                             }
                             try {

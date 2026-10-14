@@ -382,4 +382,75 @@ class RadialArcRedesignAndDuplicatePreventionTest {
         org.mockito.Mockito.`when`(normalizedUri.toString()).thenReturn("content://media/external/images/media/555444")
         assertTrue(com.screenarc.app.service.ScreenshotObserver.isExcluded(2L, normalizedUri, "Screenshot_Normal.png"))
     }
+
+    @Test
+    fun testCategoriesDoNotOverlapInSecondLayer() {
+        val categories = listOf(
+            CategoryUiModel(1L, "Finance", "Finance"),
+            CategoryUiModel(2L, "Work", "Work"),
+            CategoryUiModel(3L, "Receipts", "Receipts"),
+            CategoryUiModel(4L, "Personal", "Personal"),
+            CategoryUiModel(5L, "Travel", "Travel")
+        )
+        val radiusPx = 280f
+        val layout = RadialMenuGeometry.calculateLayout(
+            categories = categories,
+            radiusPx = radiusPx,
+            edgeAnchor = OverlayEdgeAnchor.BOTTOM_RIGHT
+        )
+
+        assertEquals(5, layout.categoriesWithPos.size)
+
+        // Verify that every pair of categories has a distinct position with adequate separation (> 50px)
+        for (i in 0 until layout.categoriesWithPos.size) {
+            for (j in i + 1 until layout.categoriesWithPos.size) {
+                val pos1 = layout.categoriesWithPos[i].second
+                val pos2 = layout.categoriesWithPos[j].second
+                val dx = pos1.x - pos2.x
+                val dy = pos1.y - pos2.y
+                val dist = kotlin.math.sqrt(dx * dx + dy * dy)
+                assertTrue("Distance between category $i and $j should be >= 50px to prevent overlap, was $dist", dist >= 50f)
+            }
+        }
+    }
+
+    @Test
+    fun testConcentricCircularTwoLayerGeometry() {
+        val categories = (1..5).map { CategoryUiModel(it.toLong(), "Cat $it", "Cat_$it") }
+        val radiusPx = 300f
+        val layout = RadialMenuGeometry.calculateLayout(
+            categories = categories,
+            radiusPx = radiusPx,
+            edgeAnchor = OverlayEdgeAnchor.BOTTOM_RIGHT
+        )
+
+        val expectedInnerRadius = radiusPx * 0.62f
+        val expectedOuterRadius = radiusPx * 1.35f
+
+        assertEquals(expectedInnerRadius, layout.innerRadiusPx, 0.5f)
+        assertEquals(expectedOuterRadius, layout.outerRadiusPx, 0.5f)
+
+        // Verify all Layer 1 action pods lie on the inner circular arc
+        val actionPositions = listOfNotNull(layout.copyPos, layout.sharePos, layout.shareAndDeletePos, layout.deletePos)
+        assertEquals(4, actionPositions.size)
+        actionPositions.forEach { pos ->
+            val dist = kotlin.math.sqrt(pos.x * pos.x + pos.y * pos.y)
+            assertEquals("Action position should lie on circular innerRadius", expectedInnerRadius, dist, 1.0f)
+        }
+
+        // Verify all Layer 2 categories lie on the outer circular arc
+        assertEquals(5, layout.categoriesWithPos.size)
+        layout.categoriesWithPos.forEach { (cat, pos) ->
+            val dist = kotlin.math.sqrt(pos.x * pos.x + pos.y * pos.y)
+            assertEquals("Category ${cat.name} should lie on circular outerRadius", expectedOuterRadius, dist, 1.0f)
+        }
+
+        // Verify minimum distance separation between adjacent categories along the arc (> 60px)
+        for (i in 0 until layout.categoriesWithPos.size - 1) {
+            val p1 = layout.categoriesWithPos[i].second
+            val p2 = layout.categoriesWithPos[i + 1].second
+            val dist = kotlin.math.sqrt((p1.x - p2.x) * (p1.x - p2.x) + (p1.y - p2.y) * (p1.y - p2.y))
+            assertTrue("Distance between adjacent categories should be >= 60px to prevent overlap, was $dist", dist >= 60f)
+        }
+    }
 }
