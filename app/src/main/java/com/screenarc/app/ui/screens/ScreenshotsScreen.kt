@@ -99,6 +99,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.screenarc.app.data.OcrRepositoryImpl
 import com.screenarc.app.model.CategoryUiModel
 import com.screenarc.app.model.OcrBlock
@@ -980,7 +981,11 @@ fun ScreenshotCardItem(
                     .background(MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 AsyncImage(
-                    model = screenshot.contentUri,
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(screenshot.contentUri)
+                        .size(360, 260)
+                        .crossfade(true)
+                        .build(),
                     contentDescription = screenshot.displayName,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()

@@ -383,16 +383,42 @@ class OverlayService : Service() {
                         suggestedCategoryId = suggestedCategoryId,
                         categoryUsageMap = usageMap,
                         entities = entities,
-                        onPhaseChanged = { phase ->
+                        onPhaseChanged = { phase, cornerAnchor ->
                             val d = resources.displayMetrics.density
-                            val rtl = resources.configuration.layoutDirection == android.view.View.LAYOUT_DIRECTION_RTL
+                            val marginEnd = (20 * d).toInt()
+                            val marginBottom = (80 * d).toInt()
+                            val marginTop = (80 * d).toInt()
                             when (phase) {
                                 OverlayPhase.BUBBLE -> {
                                     layoutParams.width = WindowManager.LayoutParams.WRAP_CONTENT
                                     layoutParams.height = WindowManager.LayoutParams.WRAP_CONTENT
-                                    layoutParams.gravity = if (rtl) (Gravity.BOTTOM or Gravity.LEFT) else (Gravity.BOTTOM or Gravity.RIGHT)
-                                    layoutParams.x = (20 * d).toInt()
-                                    layoutParams.y = (80 * d).toInt()
+                                    when (cornerAnchor) {
+                                        com.screenarc.app.ui.overlay.OverlayEdgeAnchor.BOTTOM_RIGHT -> {
+                                            layoutParams.gravity = Gravity.BOTTOM or Gravity.RIGHT
+                                            layoutParams.x = marginEnd
+                                            layoutParams.y = marginBottom
+                                        }
+                                        com.screenarc.app.ui.overlay.OverlayEdgeAnchor.BOTTOM_LEFT -> {
+                                            layoutParams.gravity = Gravity.BOTTOM or Gravity.LEFT
+                                            layoutParams.x = marginEnd
+                                            layoutParams.y = marginBottom
+                                        }
+                                        com.screenarc.app.ui.overlay.OverlayEdgeAnchor.TOP_RIGHT -> {
+                                            layoutParams.gravity = Gravity.TOP or Gravity.RIGHT
+                                            layoutParams.x = marginEnd
+                                            layoutParams.y = marginTop
+                                        }
+                                        com.screenarc.app.ui.overlay.OverlayEdgeAnchor.TOP_LEFT -> {
+                                            layoutParams.gravity = Gravity.TOP or Gravity.LEFT
+                                            layoutParams.x = marginEnd
+                                            layoutParams.y = marginTop
+                                        }
+                                        else -> {
+                                            layoutParams.gravity = Gravity.BOTTOM or Gravity.RIGHT
+                                            layoutParams.x = marginEnd
+                                            layoutParams.y = marginBottom
+                                        }
+                                    }
                                 }
                                 OverlayPhase.ARC_EXPANDED -> {
                                     layoutParams.width = WindowManager.LayoutParams.MATCH_PARENT

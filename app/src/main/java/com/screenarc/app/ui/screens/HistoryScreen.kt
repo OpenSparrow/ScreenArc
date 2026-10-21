@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.screenarc.app.data.CategoryRepository
 import com.screenarc.app.data.OrganizedHistoryRepository
 import com.screenarc.app.model.OrganizedRecord
@@ -245,7 +246,11 @@ fun HistoryScreen(
                             modifier = Modifier.size(64.dp)
                         ) {
                             AsyncImage(
-                                model = record.uri,
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(record.uri)
+                                    .size(160, 160)
+                                    .crossfade(true)
+                                    .build(),
                                 contentDescription = record.fileName,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()

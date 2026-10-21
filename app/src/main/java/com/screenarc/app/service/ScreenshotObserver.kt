@@ -27,7 +27,32 @@ class ScreenshotObserver(
 
     private val processedIds = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
     private val processedUris = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    private val observerStartTimeSec: Long = System.currentTimeMillis() / 1000
     private var debounceJob: Job? = null
+
+    init {
+        // Pre-populate processed IDs with existing screenshots so they are not falsely detected on startup
+        try {
+            val projection = arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DATE_ADDED)
+            val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+            } else {
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            }
+            context.contentResolver.query(collection, projection, null, null, "${MediaStore.Images.Media.DATE_ADDED} DESC")?.use { cursor ->
+                var count = 0
+                val idCol = cursor.getColumnIndex(MediaStore.Images.Media._ID)
+                while (cursor.moveToNext() && count < 25) {
+                    if (idCol != -1) {
+                        processedIds.add(cursor.getLong(idCol))
+                    }
+                    count++
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not pre-populate existing screenshot IDs: ${e.message}")
+        }
+    }
 
     fun markProcessed(id: Long, uri: Uri? = null) {
         processedIds.add(id)
@@ -180,7 +205,7 @@ class ScreenshotObserver(
                     // Normalize timestamp to seconds
                     val dateAddedSec = if (rawDateAdded > 100_000_000_000L) rawDateAdded / 1000 else rawDateAdded
                     val currentTimeSec = System.currentTimeMillis() / 1000
-                    val isRecent = dateAddedSec == 0L || kotlin.math.abs(currentTimeSec - dateAddedSec) < 180
+                    val isRecent = dateAddedSec > (observerStartTimeSec - 15) && dateAddedSec > 0L && kotlin.math.abs(currentTimeSec - dateAddedSec) < 60
 
                     // Support diverse OEM screenshot directories & naming patterns
                     val isScreenshotPath = path.contains("screenshot", ignoreCase = true) ||

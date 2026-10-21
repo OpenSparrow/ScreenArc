@@ -125,7 +125,7 @@ fun FloatingOverlayView(
     onOpenSearch: () -> Unit,
     onStyleChanged: ((ArcDesignStyle) -> Unit)? = null,
     entities: List<com.screenarc.app.model.SmartEntity> = emptyList(),
-    onPhaseChanged: (OverlayPhase) -> Unit = {},
+    onPhaseChanged: (OverlayPhase, OverlayEdgeAnchor) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -143,9 +143,12 @@ fun FloatingOverlayView(
     // Active design style
     var currentArcStyle by remember { mutableStateOf(settings.arcDesignStyle) }
 
-    // ─── Overlay phase state ──────────────────────────────────────────────────
-    // Always start as the small corner circle (BUBBLE); the radial arc only
-    // expands when the user taps the circle.
+    // ─── Overlay phase & corner state ──────────────────────────────────────────
+    // Always start as the small corner circle (BUBBLE); the radial arc expands
+    // when the user taps or drags the circle.
+    var currentCornerAnchor by remember {
+        mutableStateOf(if (isRtl) OverlayEdgeAnchor.BOTTOM_LEFT else OverlayEdgeAnchor.BOTTOM_RIGHT)
+    }
     var phase by remember { mutableStateOf(OverlayPhase.BUBBLE) }
     var successCategory by remember { mutableStateOf<CategoryUiModel?>(null) }
     var isDismissing by remember { mutableStateOf(false) }
@@ -165,8 +168,8 @@ fun FloatingOverlayView(
     // finishes moving the window to Gravity.BOTTOM before Compose renders the banner
     var isUndoVisible by remember { mutableStateOf(false) }
 
-    LaunchedEffect(phase) {
-        onPhaseChanged(phase)
+    LaunchedEffect(phase, currentCornerAnchor) {
+        onPhaseChanged(phase, currentCornerAnchor)
         if (phase == OverlayPhase.UNDO_NOTIFICATION) {
             delay(120)
             isUndoVisible = true
@@ -175,7 +178,7 @@ fun FloatingOverlayView(
         }
     }
 
-    // Drag offset & snapping (only active in ARC_EXPANDED phase)
+    // Drag offset & snapping (active in both BUBBLE and ARC_EXPANDED phases)
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
     var isDragging by remember { mutableStateOf(false) }
@@ -218,7 +221,7 @@ fun FloatingOverlayView(
     var remainingSeconds by remember { mutableStateOf(settings.autoDismissSeconds) }
     var timerProgress by remember { mutableFloatStateOf(1.0f) }
 
-    LaunchedEffect(phase, isDragging, isDismissing, successCategory, isDeleting, showUndoNotification) {
+    LaunchedEffect(phase, isDragging, successCategory, isDeleting, showUndoNotification) {
         if (phase != OverlayPhase.BUBBLE || isDragging || isDismissing || successCategory != null || isDeleting || showUndoNotification) return@LaunchedEffect
         val interval = 50L
         // When resuming from an interaction, ensure at least 2.5s remaining so it doesn't instantly vanish
@@ -233,8 +236,14 @@ fun FloatingOverlayView(
         }
 
         isDismissing = true
-        delay(220)
-        onDismiss()
+    }
+
+    // Dedicated dismissal lifecycle effect: guarantees onDismiss() and view removal always run
+    LaunchedEffect(isDismissing) {
+        if (isDismissing) {
+            delay(220)
+            onDismiss()
+        }
     }
 
     // Exit animation
@@ -260,17 +269,19 @@ fun FloatingOverlayView(
         label = "PulseGlow"
     )
 
-    val edgeAnchor = if (isRtl) OverlayEdgeAnchor.BOTTOM_LEFT else OverlayEdgeAnchor.BOTTOM_RIGHT
-    val handedness = if (isRtl) Handedness.LEFT_HANDED else Handedness.RIGHT_HANDED
+    val handedness = when (currentCornerAnchor) {
+        OverlayEdgeAnchor.BOTTOM_LEFT, OverlayEdgeAnchor.TOP_LEFT -> Handedness.LEFT_HANDED
+        else -> if (isRtl) Handedness.LEFT_HANDED else Handedness.RIGHT_HANDED
+    }
 
-    val radialLayout = remember(orderedCategories, arcRadiusPx, currentArcStyle, isRtl, isOverflowExpanded, suggestedCategoryId) {
+    val radialLayout = remember(orderedCategories, arcRadiusPx, currentArcStyle, isRtl, isOverflowExpanded, suggestedCategoryId, currentCornerAnchor) {
         RadialMenuGeometry.calculateLayout(
             categories = orderedCategories,
             radiusPx = arcRadiusPx,
             style = currentArcStyle,
             isRtl = isRtl,
             handedness = handedness,
-            edgeAnchor = edgeAnchor,
+            edgeAnchor = currentCornerAnchor,
             suggestedCategoryId = suggestedCategoryId,
             isOverflowExpanded = isOverflowExpanded
         )
@@ -294,17 +305,25 @@ fun FloatingOverlayView(
             val screenWidth = maxWidth
             val screenHeight = maxHeight
 
-            // Stable anchor point in window coordinates for the bubble & radial menu origin
-            val cornerOffsetX = with(density) {
-                val marginEnd = 20.dp.toPx()
-                val distFromCenter = (screenWidth.toPx() / 2f) - (bubbleSize.toPx() / 2f) - marginEnd
-                if (isRtl) -distFromCenter else distFromCenter
+            // Stable anchor point in window coordinates for the bubble & radial menu origin across all 4 corners
+            val marginEndPx = with(density) { 20.dp.toPx() }
+            val marginBottomPx = with(density) { 80.dp.toPx() }
+            val marginTopPx = with(density) { 80.dp.toPx() }
+            val bubbleRadiusPx = with(density) { bubbleSize.toPx() / 2f }
+
+            val halfW: Float = with(density) { (screenWidth.toPx() / 2f) - bubbleRadiusPx - marginEndPx }
+            val halfHBottom: Float = with(density) { (screenHeight.toPx() / 2f) - bubbleRadiusPx - marginBottomPx }
+            val halfHTop: Float = with(density) { (screenHeight.toPx() / 2f) - bubbleRadiusPx - marginTopPx }
+
+            val anchorOffset = remember(halfW, halfHBottom, halfHTop, currentCornerAnchor) {
+                when (currentCornerAnchor) {
+                    OverlayEdgeAnchor.BOTTOM_RIGHT -> Offset(halfW, halfHBottom)
+                    OverlayEdgeAnchor.BOTTOM_LEFT -> Offset(-1f * halfW, halfHBottom)
+                    OverlayEdgeAnchor.TOP_RIGHT -> Offset(halfW, -1f * halfHTop)
+                    OverlayEdgeAnchor.TOP_LEFT -> Offset(-1f * halfW, -1f * halfHTop)
+                    else -> Offset(halfW, halfHBottom)
+                }
             }
-            val cornerOffsetY = with(density) {
-                val marginBottom = 80.dp.toPx()
-                (screenHeight.toPx() / 2f) - (bubbleSize.toPx() / 2f) - marginBottom
-            }
-            val anchorOffset = remember(cornerOffsetX, cornerOffsetY) { Offset(cornerOffsetX, cornerOffsetY) }
 
             // ─── Phase: BUBBLE — small corner circle, non-blocking ────────────
             // Fluid backdrop opacity transition: avoids sudden black flash on layout expand
@@ -357,7 +376,7 @@ fun FloatingOverlayView(
                 isOverflowExpanded = isOverflowExpanded,
                 suggestedCategoryId = suggestedCategoryId,
                 handedness = handedness,
-                edgeAnchor = edgeAnchor,
+                edgeAnchor = currentCornerAnchor,
                 arcDesignStyle = currentArcStyle,
                 anchorOffset = anchorOffset,
                 onCategoryClick = { category ->
@@ -378,8 +397,6 @@ fun FloatingOverlayView(
                         delay(350)
                         onDeleteScreenshot()
                         isDismissing = true
-                        delay(200)
-                        onDismiss()
                     }
                 },
                 onShareClick = {
@@ -389,8 +406,6 @@ fun FloatingOverlayView(
                         delay(150)
                         onShareScreenshot()
                         isDismissing = true
-                        delay(200)
-                        onDismiss()
                     }
                 },
                 onShareAndDeleteClick = {
@@ -401,8 +416,6 @@ fun FloatingOverlayView(
                         delay(200)
                         onShareAndDeleteScreenshot()
                         isDismissing = true
-                        delay(200)
-                        onDismiss()
                     }
                 },
                 onCopyClick = {
@@ -412,8 +425,6 @@ fun FloatingOverlayView(
                         delay(150)
                         onCopyScreenshot()
                         isDismissing = true
-                        delay(200)
-                        onDismiss()
                     }
                 },
                 onMoreClick = {
@@ -477,125 +488,107 @@ fun FloatingOverlayView(
                                 else -> thumbnailDragScale
                             }
                         )
-                        .pointerInput(isExpanded) {
-                            if (isExpanded) {
-                                detectDragGestures(
-                                    onDragStart = {
-                                        isDragging = true
-                                        triggerHapticFeedback(context, HapticType.ENTER)
-                                    },
-                                    onDrag = { change, dragAmount ->
-                                        change.consume()
-                                        dragOffsetX += dragAmount.x
-                                        dragOffsetY += dragAmount.y
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = {
+                                    isDragging = true
+                                    if (phase == OverlayPhase.BUBBLE) {
+                                        phase = OverlayPhase.ARC_EXPANDED
+                                    }
+                                    triggerHapticFeedback(context, HapticType.ENTER)
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    dragOffsetX += dragAmount.x
+                                    dragOffsetY += dragAmount.y
 
-                                        val hoverTarget = RadialMenuGeometry.findHoverTarget(
-                                            Offset(dragOffsetX, dragOffsetY),
-                                            radialLayout,
-                                            hitThresholdPx
-                                        )
+                                    val hoverTarget = RadialMenuGeometry.findHoverTarget(
+                                        Offset(dragOffsetX, dragOffsetY),
+                                        radialLayout,
+                                        hitThresholdPx
+                                    )
 
-                                        val newHoveredCat = (hoverTarget as? HoverTarget.Category)?.category
-                                        val newIsDelete = hoverTarget is HoverTarget.Delete
-                                        val newIsShare = hoverTarget is HoverTarget.Share
-                                        val newIsShareAndDelete = hoverTarget is HoverTarget.ShareAndDelete
-                                        val newIsCopy = hoverTarget is HoverTarget.Copy
-                                        val newIsMore = hoverTarget is HoverTarget.More
+                                    val newHoveredCat = (hoverTarget as? HoverTarget.Category)?.category
+                                    val newIsDelete = hoverTarget is HoverTarget.Delete
+                                    val newIsShare = hoverTarget is HoverTarget.Share
+                                    val newIsShareAndDelete = hoverTarget is HoverTarget.ShareAndDelete
+                                    val newIsCopy = hoverTarget is HoverTarget.Copy
+                                    val newIsMore = hoverTarget is HoverTarget.More
 
-                                        if (newIsDelete != isDeleteHovered) {
-                                            isDeleteHovered = newIsDelete
-                                            if (newIsDelete) triggerHapticFeedback(context, HapticType.WARNING)
+                                    if (newIsDelete != isDeleteHovered) {
+                                        isDeleteHovered = newIsDelete
+                                        if (newIsDelete) triggerHapticFeedback(context, HapticType.WARNING)
+                                    }
+                                    if (newIsShare != isShareHovered) {
+                                        isShareHovered = newIsShare
+                                        if (newIsShare) triggerHapticFeedback(context, HapticType.ENTER)
+                                    }
+                                    if (newIsShareAndDelete != isShareAndDeleteHovered) {
+                                        isShareAndDeleteHovered = newIsShareAndDelete
+                                        if (newIsShareAndDelete) triggerHapticFeedback(context, HapticType.WARNING)
+                                    }
+                                    if (newIsCopy != isCopyHovered) {
+                                        isCopyHovered = newIsCopy
+                                        if (newIsCopy) triggerHapticFeedback(context, HapticType.ENTER)
+                                    }
+                                    if (newIsMore != isMoreHovered) {
+                                        isMoreHovered = newIsMore
+                                        if (newIsMore) {
+                                            triggerHapticFeedback(context, HapticType.ENTER)
+                                            isOverflowExpanded = true
                                         }
-                                        if (newIsShare != isShareHovered) {
-                                            isShareHovered = newIsShare
-                                            if (newIsShare) triggerHapticFeedback(context, HapticType.ENTER)
+                                    }
+                                    if (newHoveredCat != hoveredCategory) {
+                                        if (newHoveredCat != null) triggerHapticFeedback(context, HapticType.ENTER)
+                                        else if (hoveredCategory != null) triggerHapticFeedback(context, HapticType.LEAVE)
+                                        hoveredCategory = newHoveredCat
+                                    }
+                                },
+                                onDragEnd = {
+                                    isDragging = false
+                                    if (isDeleteHovered) {
+                                        isDeleting = true
+                                        triggerHapticFeedback(context, HapticType.DROP)
+                                        coroutineScope.launch {
+                                            delay(350)
+                                            onDeleteScreenshot()
+                                            isDismissing = true
                                         }
-                                        if (newIsShareAndDelete != isShareAndDeleteHovered) {
-                                            isShareAndDeleteHovered = newIsShareAndDelete
-                                            if (newIsShareAndDelete) triggerHapticFeedback(context, HapticType.WARNING)
+                                    } else if (isShareHovered) {
+                                        triggerHapticFeedback(context, HapticType.DROP)
+                                        coroutineScope.launch {
+                                            delay(150)
+                                            onShareScreenshot()
+                                            isDismissing = true
                                         }
-                                        if (newIsCopy != isCopyHovered) {
-                                            isCopyHovered = newIsCopy
-                                            if (newIsCopy) triggerHapticFeedback(context, HapticType.ENTER)
+                                    } else if (isShareAndDeleteHovered) {
+                                        isDeleting = true
+                                        triggerHapticFeedback(context, HapticType.DROP)
+                                        coroutineScope.launch {
+                                            delay(200)
+                                            onShareAndDeleteScreenshot()
+                                            isDismissing = true
                                         }
-                                        if (newIsMore != isMoreHovered) {
-                                            isMoreHovered = newIsMore
-                                            if (newIsMore) {
-                                                triggerHapticFeedback(context, HapticType.ENTER)
-                                                isOverflowExpanded = true
-                                            }
+                                    } else if (isCopyHovered) {
+                                        triggerHapticFeedback(context, HapticType.DROP)
+                                        coroutineScope.launch {
+                                            delay(150)
+                                            onCopyScreenshot()
+                                            isDismissing = true
                                         }
-                                        if (newHoveredCat != hoveredCategory) {
-                                            if (newHoveredCat != null) triggerHapticFeedback(context, HapticType.ENTER)
-                                            else if (hoveredCategory != null) triggerHapticFeedback(context, HapticType.LEAVE)
-                                            hoveredCategory = newHoveredCat
+                                    } else if (hoveredCategory != null) {
+                                        val target = hoveredCategory!!
+                                        successCategory = target
+                                        triggerHapticFeedback(context, HapticType.DROP)
+                                        coroutineScope.launch {
+                                            delay(300)
+                                            onMoveToCategory(target)
+                                            phase = OverlayPhase.UNDO_NOTIFICATION
                                         }
-                                    },
-                                    onDragEnd = {
-                                        isDragging = false
-                                        if (isDeleteHovered) {
-                                            isDeleting = true
-                                            triggerHapticFeedback(context, HapticType.DROP)
-                                            coroutineScope.launch {
-                                                delay(350)
-                                                onDeleteScreenshot()
-                                                isDismissing = true
-                                                delay(200)
-                                                onDismiss()
-                                            }
-                                        } else if (isShareHovered) {
-                                            triggerHapticFeedback(context, HapticType.DROP)
-                                            coroutineScope.launch {
-                                                delay(150)
-                                                onShareScreenshot()
-                                                isDismissing = true
-                                                delay(200)
-                                                onDismiss()
-                                            }
-                                        } else if (isShareAndDeleteHovered) {
-                                            isDeleting = true
-                                            triggerHapticFeedback(context, HapticType.DROP)
-                                            coroutineScope.launch {
-                                                delay(200)
-                                                onShareAndDeleteScreenshot()
-                                                isDismissing = true
-                                                delay(200)
-                                                onDismiss()
-                                            }
-                                        } else if (isCopyHovered) {
-                                            triggerHapticFeedback(context, HapticType.DROP)
-                                            coroutineScope.launch {
-                                                delay(150)
-                                                onCopyScreenshot()
-                                                isDismissing = true
-                                                delay(200)
-                                                onDismiss()
-                                            }
-                                        } else if (hoveredCategory != null) {
-                                            val target = hoveredCategory!!
-                                            successCategory = target
-                                            triggerHapticFeedback(context, HapticType.DROP)
-                                            coroutineScope.launch {
-                                                delay(300)
-                                                onMoveToCategory(target)
-                                                phase = OverlayPhase.UNDO_NOTIFICATION
-                                            }
-                                        } else {
-                                            // Dropped in neutral space without selecting a target:
-                                            // Smoothly springs back to resting corner bubble and resumes timeout
-                                            dragOffsetX = 0f
-                                            dragOffsetY = 0f
-                                            hoveredCategory = null
-                                            isDeleteHovered = false
-                                            isShareHovered = false
-                                            isShareAndDeleteHovered = false
-                                            isCopyHovered = false
-                                            isMoreHovered = false
-                                            phase = OverlayPhase.BUBBLE
-                                        }
-                                    },
-                                    onDragCancel = {
-                                        isDragging = false
+                                    } else {
+                                        // Dropped at corner or neutral space: snap to nearest corner
+                                        val dropFingerOffset = Offset(anchorOffset.x + dragOffsetX, anchorOffset.y + dragOffsetY)
+                                        currentCornerAnchor = RadialMenuGeometry.findNearestCorner(dropFingerOffset)
                                         dragOffsetX = 0f
                                         dragOffsetY = 0f
                                         hoveredCategory = null
@@ -605,9 +598,22 @@ fun FloatingOverlayView(
                                         isCopyHovered = false
                                         isMoreHovered = false
                                         phase = OverlayPhase.BUBBLE
+                                        remainingMillis = 2500L
                                     }
-                                )
-                            }
+                                },
+                                onDragCancel = {
+                                    isDragging = false
+                                    dragOffsetX = 0f
+                                    dragOffsetY = 0f
+                                    hoveredCategory = null
+                                    isDeleteHovered = false
+                                    isShareHovered = false
+                                    isShareAndDeleteHovered = false
+                                    isCopyHovered = false
+                                    isMoreHovered = false
+                                    phase = OverlayPhase.BUBBLE
+                                }
+                            )
                         },
                     contentAlignment = Alignment.Center
                 ) {
@@ -772,11 +778,7 @@ fun FloatingOverlayView(
                                 .size(24.dp)
                                 .clip(CircleShape)
                                 .clickable {
-                                    coroutineScope.launch {
-                                        isDismissing = true
-                                        delay(180)
-                                        onDismiss()
-                                    }
+                                    isDismissing = true
                                 },
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -915,8 +917,6 @@ fun FloatingOverlayView(
                         undoTimerSec--
                     }
                     isDismissing = true
-                    delay(200)
-                    onDismiss()
                 }
 
                 Surface(
@@ -961,6 +961,7 @@ fun FloatingOverlayView(
                                 isUndoVisible = false
                                 successCategory = null
                                 phase = OverlayPhase.BUBBLE
+                                remainingMillis = 2500L
                                 triggerHapticFeedback(context, HapticType.DROP)
                             },
                             colors = ButtonDefaults.textButtonColors(

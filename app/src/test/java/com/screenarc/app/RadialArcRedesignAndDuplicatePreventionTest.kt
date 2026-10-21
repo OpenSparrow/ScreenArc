@@ -453,4 +453,60 @@ class RadialArcRedesignAndDuplicatePreventionTest {
             assertTrue("Distance between adjacent categories should be >= 60px to prevent overlap, was $dist", dist >= 60f)
         }
     }
+
+    @Test
+    fun testTopRightAndTopLeftCornerRadialMenuGeometry() {
+        val categories = listOf(
+            CategoryUiModel(1L, "Receipts", "Receipts"),
+            CategoryUiModel(2L, "Work", "Work"),
+            CategoryUiModel(3L, "Social", "Social")
+        )
+        val radiusPx = 280f
+
+        // 1. TOP_RIGHT Corner
+        val trLayout = RadialMenuGeometry.calculateLayout(
+            categories = categories,
+            radiusPx = radiusPx,
+            edgeAnchor = OverlayEdgeAnchor.TOP_RIGHT
+        )
+        assertEquals(3, trLayout.categoriesWithPos.size)
+        // From top-right, arc blooms into lower-left quadrant: x < 0, y > 0
+        trLayout.categoriesWithPos.forEach { (cat, pos) ->
+            assertTrue("TOP_RIGHT category ${cat.name} x should be negative (leftward), was ${pos.x}", pos.x < 0)
+            assertTrue("TOP_RIGHT category ${cat.name} y should be positive (downward), was ${pos.y}", pos.y > 0)
+        }
+        assertTrue("TOP_RIGHT deletePos x should be negative", trLayout.deletePos.x < 0)
+        assertTrue("TOP_RIGHT deletePos y should be positive", trLayout.deletePos.y > 0)
+
+        // 2. TOP_LEFT Corner
+        val tlLayout = RadialMenuGeometry.calculateLayout(
+            categories = categories,
+            radiusPx = radiusPx,
+            edgeAnchor = OverlayEdgeAnchor.TOP_LEFT
+        )
+        assertEquals(3, tlLayout.categoriesWithPos.size)
+        // From top-left, arc blooms into lower-right quadrant: x > 0, y > 0
+        tlLayout.categoriesWithPos.forEach { (cat, pos) ->
+            assertTrue("TOP_LEFT category ${cat.name} x should be positive (rightward), was ${pos.x}", pos.x > 0)
+            assertTrue("TOP_LEFT category ${cat.name} y should be positive (downward), was ${pos.y}", pos.y > 0)
+        }
+        assertTrue("TOP_LEFT deletePos x should be positive", tlLayout.deletePos.x > 0)
+        assertTrue("TOP_LEFT deletePos y should be positive", tlLayout.deletePos.y > 0)
+    }
+
+    @Test
+    fun testFindNearestCorner() {
+        // Bottom Right: x >= 0, y >= 0
+        assertEquals(OverlayEdgeAnchor.BOTTOM_RIGHT, RadialMenuGeometry.findNearestCorner(Offset(200f, 400f)))
+        assertEquals(OverlayEdgeAnchor.BOTTOM_RIGHT, RadialMenuGeometry.findNearestCorner(Offset(0f, 0f)))
+
+        // Bottom Left: x < 0, y >= 0
+        assertEquals(OverlayEdgeAnchor.BOTTOM_LEFT, RadialMenuGeometry.findNearestCorner(Offset(-200f, 400f)))
+
+        // Top Right: x >= 0, y < 0
+        assertEquals(OverlayEdgeAnchor.TOP_RIGHT, RadialMenuGeometry.findNearestCorner(Offset(200f, -400f)))
+
+        // Top Left: x < 0, y < 0
+        assertEquals(OverlayEdgeAnchor.TOP_LEFT, RadialMenuGeometry.findNearestCorner(Offset(-200f, -400f)))
+    }
 }

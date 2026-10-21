@@ -22,12 +22,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 data class SearchUiState(
@@ -63,14 +66,17 @@ class SearchViewModel @JvmOverloads constructor(
     val rules: StateFlow<List<AutoCategorizationRule>> = rulesRepository.rules
     val batchProgress = ocrRepository.batchProgress
 
-    // Search results reactive flow with debouncing
+    // Search results reactive flow with debouncing and background mapping
     val searchResults: StateFlow<List<ScreenshotUiModel>> = _queryFlow
         .debounce(300)
         .distinctUntilChanged()
         .flatMapLatest { query ->
-            screenshotRepository.searchScreenshots(query).map { list ->
-                list.map { it.toUiModel() }
-            }
+            screenshotRepository.searchScreenshots(query)
+                .conflate()
+                .map { list ->
+                    list.map { it.toUiModel() }
+                }
+                .flowOn(Dispatchers.Default)
         }
         .stateIn(
             scope = viewModelScope,
@@ -196,7 +202,7 @@ class SearchViewModel @JvmOverloads constructor(
     }
 
     fun runOcrForSelected() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             val selected = searchResults.value.filter { _uiState.value.selectedUris.contains(it.uri) }
             if (selected.isEmpty()) return@launch
 
@@ -205,6 +211,7 @@ class SearchViewModel @JvmOverloads constructor(
             for (item in selected) {
                 val res = ocrRepository.recognizeText(item.contentUri)
                 if (res.success) count++
+                delay(20)
             }
             clearSelection()
             _uiState.value = _uiState.value.copy(
@@ -317,7 +324,7 @@ class SearchViewModel @JvmOverloads constructor(
 
     // Standard OCR & Single-Item Actions
     fun runOcrForScreenshot(screenshot: ScreenshotUiModel) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             _uiState.value = _uiState.value.copy(isOcrRunning = true, activeOcrUri = screenshot.uri)
             val result = ocrRepository.recognizeText(screenshot.contentUri)
             _uiState.value = _uiState.value.copy(
