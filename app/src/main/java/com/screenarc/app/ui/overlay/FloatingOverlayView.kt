@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -51,7 +52,6 @@ import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TouchApp
-import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -75,10 +75,9 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -93,6 +92,9 @@ import com.screenarc.app.data.AppSettings
 import com.screenarc.app.model.ArcDesignStyle
 import com.screenarc.app.model.CategoryUiModel
 import com.screenarc.app.model.ScreenshotItem
+import com.screenarc.app.ui.theme.AuroraCyan
+import com.screenarc.app.ui.theme.ElectricIndigo
+import com.screenarc.app.ui.theme.Motion
 import com.screenarc.app.ui.theme.ScreenArcTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -144,10 +146,8 @@ fun FloatingOverlayView(
     var currentArcStyle by remember { mutableStateOf(settings.arcDesignStyle) }
 
     // ─── Overlay phase & corner state ──────────────────────────────────────────
-    // Always start as the small corner circle (BUBBLE); the radial arc expands
-    // when the user taps or drags the circle.
-    var currentCornerAnchor by remember {
-        mutableStateOf(if (isRtl) OverlayEdgeAnchor.BOTTOM_LEFT else OverlayEdgeAnchor.BOTTOM_RIGHT)
+    var currentCornerAnchor by remember(settings.overlayPlacement) {
+        mutableStateOf(settings.overlayPlacement.toEdgeAnchor())
     }
     var phase by remember { mutableStateOf(OverlayPhase.BUBBLE) }
     var successCategory by remember { mutableStateOf<CategoryUiModel?>(null) }
@@ -164,8 +164,7 @@ fun FloatingOverlayView(
     val isExpanded = phase == OverlayPhase.ARC_EXPANDED
     val showUndoNotification = phase == OverlayPhase.UNDO_NOTIFICATION
 
-    // Gate visibility of the undo banner to ensure WindowManager's updateViewLayout IPC
-    // finishes moving the window to Gravity.BOTTOM before Compose renders the banner
+    // Gate visibility of the undo banner
     var isUndoVisible by remember { mutableStateOf(false) }
 
     LaunchedEffect(phase, currentCornerAnchor) {
@@ -178,19 +177,17 @@ fun FloatingOverlayView(
         }
     }
 
-    // Drag offset & snapping (active in both BUBBLE and ARC_EXPANDED phases)
+    // Drag offset & snapping
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
     var isDragging by remember { mutableStateOf(false) }
-
-    val fluidEasing = remember { androidx.compose.animation.core.CubicBezierEasing(0.4f, 0.0f, 0.2f, 1.0f) }
 
     val animatedDragX by animateFloatAsState(
         targetValue = dragOffsetX,
         animationSpec = if (isDragging) {
             spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh)
         } else {
-            tween(durationMillis = 180, easing = fluidEasing)
+            tween(durationMillis = Motion.DurationFast, easing = Motion.FluidEasing)
         },
         label = "AnimatedDragX"
     )
@@ -200,12 +197,11 @@ fun FloatingOverlayView(
         animationSpec = if (isDragging) {
             spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh)
         } else {
-            tween(durationMillis = 180, easing = fluidEasing)
+            tween(durationMillis = Motion.DurationFast, easing = Motion.FluidEasing)
         },
         label = "AnimatedDragY"
     )
 
-    // Fluid drag offset: during active touch, tracks finger 1:1; upon release, rapidly snaps to 0 in sync with arc collapse
     val currentDragX = if (isDragging) dragOffsetX else animatedDragX
     val currentDragY = if (isDragging) dragOffsetY else animatedDragY
 
@@ -215,7 +211,7 @@ fun FloatingOverlayView(
     val arcRadiusPx = with(density) { arcRadius.toPx() }
     val hitThresholdPx = with(density) { 56.dp.toPx() }
 
-    // Auto-dismiss countdown (only in BUBBLE phase; paused while user touches/expands arc, and resumes when dropped)
+    // Auto-dismiss countdown
     val totalMillis = remember(settings.autoDismissSeconds) { settings.autoDismissSeconds * 1000L }
     var remainingMillis by remember { mutableStateOf(totalMillis) }
     var remainingSeconds by remember { mutableStateOf(settings.autoDismissSeconds) }
@@ -224,7 +220,6 @@ fun FloatingOverlayView(
     LaunchedEffect(phase, isDragging, successCategory, isDeleting, showUndoNotification) {
         if (phase != OverlayPhase.BUBBLE || isDragging || isDismissing || successCategory != null || isDeleting || showUndoNotification) return@LaunchedEffect
         val interval = 50L
-        // When resuming from an interaction, ensure at least 2.5s remaining so it doesn't instantly vanish
         if (remainingMillis < 2500L) {
             remainingMillis = 2500L
         }
@@ -238,7 +233,6 @@ fun FloatingOverlayView(
         isDismissing = true
     }
 
-    // Dedicated dismissal lifecycle effect: guarantees onDismiss() and view removal always run
     LaunchedEffect(isDismissing) {
         if (isDismissing) {
             delay(220)
@@ -258,10 +252,13 @@ fun FloatingOverlayView(
         label = "ExitAlpha"
     )
 
-    val infiniteTransition = rememberInfiniteTransition(label = "PulseTransition")
-    val pulseGlow by infiniteTransition.animateFloat(
+    // Battery-efficient idle breathing pulse:
+    // Only runs when in BUBBLE phase, and applied via graphicsLayer
+    val isBubblePhase = phase == OverlayPhase.BUBBLE && !isDismissing && !isDeleting && successCategory == null && !showUndoNotification
+    val pulseTransition = rememberInfiniteTransition(label = "PulseTransition")
+    val pulseGlow by pulseTransition.animateFloat(
         initialValue = 0.96f,
-        targetValue = 1.05f,
+        targetValue = 1.04f,
         animationSpec = infiniteRepeatable(
             animation = tween(1200, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
@@ -270,7 +267,7 @@ fun FloatingOverlayView(
     )
 
     val handedness = when (currentCornerAnchor) {
-        OverlayEdgeAnchor.BOTTOM_LEFT, OverlayEdgeAnchor.TOP_LEFT -> Handedness.LEFT_HANDED
+        OverlayEdgeAnchor.BOTTOM_LEFT, OverlayEdgeAnchor.TOP_LEFT, OverlayEdgeAnchor.CENTER_LEFT -> Handedness.LEFT_HANDED
         else -> if (isRtl) Handedness.LEFT_HANDED else Handedness.RIGHT_HANDED
     }
 
@@ -305,7 +302,7 @@ fun FloatingOverlayView(
             val screenWidth = maxWidth
             val screenHeight = maxHeight
 
-            // Stable anchor point in window coordinates for the bubble & radial menu origin across all 4 corners
+            // Stable anchor point in window coordinates across all 6 corners/edges
             val marginEndPx = with(density) { 20.dp.toPx() }
             val marginBottomPx = with(density) { 80.dp.toPx() }
             val marginTopPx = with(density) { 80.dp.toPx() }
@@ -321,20 +318,20 @@ fun FloatingOverlayView(
                     OverlayEdgeAnchor.BOTTOM_LEFT -> Offset(-1f * halfW, halfHBottom)
                     OverlayEdgeAnchor.TOP_RIGHT -> Offset(halfW, -1f * halfHTop)
                     OverlayEdgeAnchor.TOP_LEFT -> Offset(-1f * halfW, -1f * halfHTop)
+                    OverlayEdgeAnchor.CENTER_RIGHT -> Offset(halfW, 0f)
+                    OverlayEdgeAnchor.CENTER_LEFT -> Offset(-1f * halfW, 0f)
                     else -> Offset(halfW, halfHBottom)
                 }
             }
 
-            // ─── Phase: BUBBLE — small corner circle, non-blocking ────────────
-            // Fluid backdrop opacity transition: avoids sudden black flash on layout expand
+            // ─── Scrim Backdrop (Soft, non-blocking dim when arc expands) ───────────
             val backdropAlpha by animateFloatAsState(
-                targetValue = if (isExpanded && !showUndoNotification) 0.12f else 0.0f,
-                animationSpec = tween(durationMillis = 220, easing = fluidEasing),
+                targetValue = if (isExpanded && !showUndoNotification) 0.16f else 0.0f,
+                animationSpec = tween(durationMillis = Motion.DurationNormal, easing = Motion.GentleSpring.dampingRatio.let { Motion.FluidEasing }),
                 label = "BackdropAlpha"
             )
 
             if (backdropAlpha > 0.005f) {
-                // Subtle non-intrusive backdrop when arc is open (tap anywhere outside to collapse back to bubble)
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -344,7 +341,6 @@ fun FloatingOverlayView(
                             indication = null
                         ) {
                             if (!isDismissing && !isDeleting && !showUndoNotification) {
-                                // Collapse arc back to bubble and resume timeout
                                 dragOffsetX = 0f
                                 dragOffsetY = 0f
                                 hoveredCategory = null
@@ -359,7 +355,7 @@ fun FloatingOverlayView(
                 )
             }
 
-            // ─── Arc Category Menu (only visible in ARC_EXPANDED) ────────────
+            // ─── Arc Category Menu ───────────────────────────────────────────────
             ArcMenuLayout(
                 categories = orderedCategories,
                 isExpanded = isExpanded && !showUndoNotification,
@@ -433,7 +429,7 @@ fun FloatingOverlayView(
                 }
             )
 
-            // ─── Central Bubble & Drag Item ───────────────────────────────────
+            // ─── Central Bubble & Drag Thumbnail ─────────────────────────────────
             val bubbleElevation by animateDpAsState(
                 targetValue = if (isDragging) 16.dp else 8.dp,
                 animationSpec = tween(150),
@@ -442,7 +438,7 @@ fun FloatingOverlayView(
 
             val thumbnailDragScale by animateFloatAsState(
                 targetValue = if (hoveredCategory != null || isDeleteHovered || isShareHovered || isShareAndDeleteHovered || isCopyHovered) 0.68f else 1.0f,
-                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+                animationSpec = Motion.SnappySpring,
                 label = "ThumbnailDragScale"
             )
 
@@ -450,12 +446,12 @@ fun FloatingOverlayView(
 
             val bubbleBorderColor by animateColorAsState(
                 targetValue = when {
-                    isDeleting -> Color(0xFFE53935)
-                    successCategory != null -> Color(0xFF4CAF50)
-                    isDeleteHovered -> Color(0xFFE53935)
-                    isShareHovered -> Color(0xFF00E5FF)
+                    isDeleting -> MaterialTheme.colorScheme.error
+                    successCategory != null -> Color(0xFF2E7D32)
+                    isDeleteHovered -> MaterialTheme.colorScheme.error
+                    isShareHovered -> AuroraCyan
                     isShareAndDeleteHovered -> Color(0xFFFFB300)
-                    isCopyHovered -> Color(0xFF7C4DFF)
+                    isCopyHovered -> ElectricIndigo
                     currentHovered != null -> {
                         if (settings.dynamicPaletteEnabled) screenshot.paletteColors.vibrant else currentHovered.composeColor
                     }
@@ -465,8 +461,6 @@ fun FloatingOverlayView(
                 animationSpec = tween(150),
                 label = "BubbleBorderColor"
             )
-
-            val isBubblePhase = !isExpanded && !showUndoNotification
 
             if (!showUndoNotification) {
                 Box(
@@ -482,12 +476,11 @@ fun FloatingOverlayView(
                                 Modifier
                             }
                         )
-                        .scale(
-                            when {
-                                isBubblePhase && !isDragging -> pulseGlow
-                                else -> thumbnailDragScale
-                            }
-                        )
+                        .graphicsLayer {
+                            val effectiveScale = if (isBubblePhase && !isDragging) pulseGlow else thumbnailDragScale
+                            scaleX = effectiveScale
+                            scaleY = effectiveScale
+                        }
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = {
@@ -586,9 +579,9 @@ fun FloatingOverlayView(
                                             phase = OverlayPhase.UNDO_NOTIFICATION
                                         }
                                     } else {
-                                        // Dropped at corner or neutral space: snap to nearest corner
+                                        // Dropped at corner, edge or neutral space: snap to nearest anchor among 6 positions
                                         val dropFingerOffset = Offset(anchorOffset.x + dragOffsetX, anchorOffset.y + dragOffsetY)
-                                        currentCornerAnchor = RadialMenuGeometry.findNearestCorner(dropFingerOffset)
+                                        currentCornerAnchor = RadialMenuGeometry.findNearestAnchor(dropFingerOffset)
                                         dragOffsetX = 0f
                                         dragOffsetY = 0f
                                         hoveredCategory = null
@@ -617,7 +610,7 @@ fun FloatingOverlayView(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    // Auto-dismiss circular timer ring (only in non-drag states)
+                    // Auto-dismiss circular timer ring
                     if (!isDragging && successCategory == null && !isDeleting) {
                         CircularProgressIndicator(
                             progress = { timerProgress },
@@ -636,12 +629,10 @@ fun FloatingOverlayView(
                             .clickable {
                                 if (!isDismissing && !isDeleting) {
                                     if (phase == OverlayPhase.BUBBLE) {
-                                        // Expand arc
                                         phase = OverlayPhase.ARC_EXPANDED
                                         dragOffsetX = 0f
                                         dragOffsetY = 0f
                                     } else {
-                                        // Collapse arc back to bubble
                                         phase = OverlayPhase.BUBBLE
                                         dragOffsetX = 0f
                                         dragOffsetY = 0f
@@ -701,7 +692,7 @@ fun FloatingOverlayView(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .background(Color(0xCC4CAF50)),
+                                        .background(Color(0xCC2E7D32)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
@@ -797,7 +788,7 @@ fun FloatingOverlayView(
                 }
             }
 
-            // ─── Bottom Actions & Arc Switcher (only when arc is expanded) ───
+            // ─── Bottom Actions (Smart Entities & App Search Shortcut) ───────────
             if (isExpanded && !showUndoNotification) {
                 Column(
                     modifier = Modifier
@@ -806,7 +797,6 @@ fun FloatingOverlayView(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Detected Smart Entities & Action Chips row
                     if (entities.isNotEmpty() && !isDragging && successCategory == null && !isDeleting) {
                         com.screenarc.app.ui.components.SmartEntityChipsRow(
                             entities = entities,
@@ -816,9 +806,6 @@ fun FloatingOverlayView(
                         )
                     }
 
-
-
-                    // Drag instruction & Open Search shortcut
                     AnimatedVisibility(
                         visible = !isDragging && successCategory == null && !isDeleting,
                         enter = fadeIn(),
@@ -845,7 +832,7 @@ fun FloatingOverlayView(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Drag or Tap Category to Move",
+                                        text = "Drag or Tap Category",
                                         style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -887,10 +874,7 @@ fun FloatingOverlayView(
                 }
             }
 
-            // ─── Undo Notification (bottom center, non-blocking) ──────────────
-            // Appears after categorization; user can still interact with the phone.
-            // The overlay window stays up but is FLAG_NOT_TOUCH_MODAL so touches
-            // outside this element pass through to apps underneath.
+            // ─── Undo Notification ───────────────────────────────────────────────
             AnimatedVisibility(
                 visible = isUndoVisible && successCategory != null,
                 enter = slideInVertically(
@@ -957,7 +941,6 @@ fun FloatingOverlayView(
                         TextButton(
                             onClick = {
                                 successCategory?.let { onUndoMove?.invoke(it) }
-                                // After undo, go back to BUBBLE phase
                                 isUndoVisible = false
                                 successCategory = null
                                 phase = OverlayPhase.BUBBLE
@@ -968,7 +951,7 @@ fun FloatingOverlayView(
                                 contentColor = MaterialTheme.colorScheme.inversePrimary
                             )
                         ) {
-                            Icon(Icons.Default.Undo, contentDescription = "Undo", modifier = Modifier.size(16.dp))
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("UNDO", fontWeight = FontWeight.ExtraBold)
                         }

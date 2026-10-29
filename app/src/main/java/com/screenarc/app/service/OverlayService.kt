@@ -58,6 +58,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class OverlayService : Service() {
 
@@ -332,6 +333,8 @@ class OverlayService : Service() {
         val isRtl = resources.configuration.layoutDirection == android.view.View.LAYOUT_DIRECTION_RTL
         val bubbleMarginEndPx = (20 * density).toInt()
         val bubbleMarginBottomPx = (80 * density).toInt()
+        val bubbleMarginTopPx = (80 * density).toInt()
+        val initialAnchor = settingsRepository.settings.value.overlayPlacement.toEdgeAnchor()
 
         val layoutParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -348,9 +351,43 @@ class OverlayService : Service() {
                     WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = if (isRtl) (Gravity.BOTTOM or Gravity.LEFT) else (Gravity.BOTTOM or Gravity.RIGHT)
-            x = bubbleMarginEndPx
-            y = bubbleMarginBottomPx
+            when (initialAnchor) {
+                com.screenarc.app.ui.overlay.OverlayEdgeAnchor.TOP_LEFT -> {
+                    gravity = Gravity.TOP or Gravity.LEFT
+                    x = bubbleMarginEndPx
+                    y = bubbleMarginTopPx
+                }
+                com.screenarc.app.ui.overlay.OverlayEdgeAnchor.CENTER_LEFT -> {
+                    gravity = Gravity.CENTER_VERTICAL or Gravity.LEFT
+                    x = bubbleMarginEndPx
+                    y = 0
+                }
+                com.screenarc.app.ui.overlay.OverlayEdgeAnchor.BOTTOM_LEFT -> {
+                    gravity = Gravity.BOTTOM or Gravity.LEFT
+                    x = bubbleMarginEndPx
+                    y = bubbleMarginBottomPx
+                }
+                com.screenarc.app.ui.overlay.OverlayEdgeAnchor.TOP_RIGHT -> {
+                    gravity = Gravity.TOP or Gravity.RIGHT
+                    x = bubbleMarginEndPx
+                    y = bubbleMarginTopPx
+                }
+                com.screenarc.app.ui.overlay.OverlayEdgeAnchor.CENTER_RIGHT -> {
+                    gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
+                    x = bubbleMarginEndPx
+                    y = 0
+                }
+                com.screenarc.app.ui.overlay.OverlayEdgeAnchor.BOTTOM_RIGHT -> {
+                    gravity = Gravity.BOTTOM or Gravity.RIGHT
+                    x = bubbleMarginEndPx
+                    y = bubbleMarginBottomPx
+                }
+                else -> {
+                    gravity = if (isRtl) (Gravity.BOTTOM or Gravity.LEFT) else (Gravity.BOTTOM or Gravity.RIGHT)
+                    x = bubbleMarginEndPx
+                    y = bubbleMarginBottomPx
+                }
+            }
         }
 
         val composeView = ComposeView(this).apply {
@@ -398,10 +435,20 @@ class OverlayService : Service() {
                                             layoutParams.x = marginEnd
                                             layoutParams.y = marginBottom
                                         }
+                                        com.screenarc.app.ui.overlay.OverlayEdgeAnchor.CENTER_RIGHT -> {
+                                            layoutParams.gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
+                                            layoutParams.x = marginEnd
+                                            layoutParams.y = 0
+                                        }
                                         com.screenarc.app.ui.overlay.OverlayEdgeAnchor.BOTTOM_LEFT -> {
                                             layoutParams.gravity = Gravity.BOTTOM or Gravity.LEFT
                                             layoutParams.x = marginEnd
                                             layoutParams.y = marginBottom
+                                        }
+                                        com.screenarc.app.ui.overlay.OverlayEdgeAnchor.CENTER_LEFT -> {
+                                            layoutParams.gravity = Gravity.CENTER_VERTICAL or Gravity.LEFT
+                                            layoutParams.x = marginEnd
+                                            layoutParams.y = 0
                                         }
                                         com.screenarc.app.ui.overlay.OverlayEdgeAnchor.TOP_RIGHT -> {
                                             layoutParams.gravity = Gravity.TOP or Gravity.RIGHT
@@ -552,7 +599,32 @@ class OverlayService : Service() {
     }
 
     private fun handleDeleteScreenshot(screenshot: ScreenshotItem) {
-        launchRedactionEditor(screenshot, RedactionEditorActivity.MODE_DELETE)
+        serviceScope.launch {
+            try {
+                val screenshotUi = com.screenarc.app.model.ScreenshotUiModel(
+                    id = screenshot.id,
+                    uri = screenshot.uri.toString(),
+                    displayName = screenshot.displayName,
+                    dateAdded = screenshot.dateAdded,
+                    size = screenshot.size,
+                    relativePath = screenshot.relativePath,
+                    mimeType = screenshot.mimeType
+                )
+                val result = screenshotRepository.deleteScreenshot(screenshotUi)
+                withContext(Dispatchers.Main) {
+                    if (result.isSuccess) {
+                        Toast.makeText(this@OverlayService, "Screenshot moved to trash / deleted", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this@OverlayService, "Could not delete screenshot", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete screenshot directly: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@OverlayService, "Failed to delete: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 
     private fun handleShareScreenshot(screenshot: ScreenshotItem) {

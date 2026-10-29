@@ -47,6 +47,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import com.screenarc.app.ui.theme.LocalIsGlassmorphic
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -83,10 +84,13 @@ fun EditorControls(
     val view = LocalView.current
     var isExpandedSettingsOpen by remember { mutableStateOf(false) }
 
+    val isGlass = LocalIsGlassmorphic.current
+
     Surface(
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = if (isGlass) Color(0x40120E22) else MaterialTheme.colorScheme.surfaceContainerHigh,
         shadowElevation = 8.dp,
+        border = if (isGlass) BorderStroke(1.dp, Color.White.copy(alpha = 0.18f)) else null,
         modifier = modifier.fillMaxWidth()
     ) {
         Column(
@@ -323,12 +327,12 @@ fun EditorControls(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 ToolButton(
-                    tool = EditTool.PAN_ZOOM,
-                    icon = Icons.Default.PanTool,
-                    isSelected = uiState.activeTool == EditTool.PAN_ZOOM,
+                    tool = EditTool.SELECT_MOVE,
+                    icon = Icons.Default.ZoomOutMap,
+                    isSelected = uiState.activeTool == EditTool.SELECT_MOVE,
                     onClick = {
                         view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                        onSelectTool(EditTool.PAN_ZOOM)
+                        onSelectTool(EditTool.SELECT_MOVE)
                     }
                 )
 
@@ -413,10 +417,20 @@ private fun ToolButton(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
+    val isGlass = LocalIsGlassmorphic.current
+
     Surface(
         shape = RoundedCornerShape(16.dp),
-        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-        border = if (isSelected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+        color = if (isSelected) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            if (isGlass) Color.White.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+        },
+        border = if (isSelected) {
+            BorderStroke(1.dp, Color.White.copy(alpha = 0.4f))
+        } else {
+            BorderStroke(1.dp, if (isGlass) Color.White.copy(alpha = 0.15f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+        },
         modifier = Modifier
             .size(width = 68.dp, height = 48.dp) // Meets 48dp minimum touch target
             .clickable(onClick = onClick)

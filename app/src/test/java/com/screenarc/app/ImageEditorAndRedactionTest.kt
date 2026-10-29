@@ -133,4 +133,95 @@ class ImageEditorAndRedactionTest {
         assertEquals(100, undoStack.size)
         assertEquals(0, redoStack.size)
     }
+
+    @Test
+    fun testLayerTranslationAcrossOperations() {
+        val textOp = EditOp.TextOp(
+            text = "Confidential",
+            x = 100f,
+            y = 200f,
+            textSize = 24f,
+            color = 0xFF000000.toInt()
+        )
+        val movedText = textOp.translatedBy(50f, -30f)
+        assertEquals(150f, movedText.x, 0.001f)
+        assertEquals(170f, movedText.y, 0.001f)
+        assertEquals("Confidential", movedText.text)
+
+        val box = EditOp.SolidRedactBox(
+            left = 10f,
+            top = 20f,
+            right = 50f,
+            bottom = 80f
+        )
+        val movedBox = box.translatedBy(15f, 25f)
+        assertEquals(25f, movedBox.left, 0.001f)
+        assertEquals(45f, movedBox.top, 0.001f)
+        assertEquals(65f, movedBox.right, 0.001f)
+        assertEquals(105f, movedBox.bottom, 0.001f)
+
+        val shape = EditOp.ShapeOp(
+            shapeType = ShapeType.ARROW,
+            startX = 10f,
+            startY = 20f,
+            endX = 100f,
+            endY = 200f,
+            strokeWidth = 4f,
+            color = 0xFFFF0000.toInt()
+        )
+        val movedShape = shape.translatedBy(-5f, 10f)
+        assertEquals(5f, movedShape.startX, 0.001f)
+        assertEquals(30f, movedShape.startY, 0.001f)
+        assertEquals(95f, movedShape.endX, 0.001f)
+        assertEquals(210f, movedShape.endY, 0.001f)
+    }
+
+    @Test
+    fun testSixOverlayPlacementsAndSnapping() {
+        // Center Middle Snap
+        val centerRight = com.screenarc.app.ui.overlay.RadialMenuGeometry.findNearestAnchor(
+            androidx.compose.ui.geometry.Offset(300f, 20f),
+            verticalMiddleThresholdPx = 150f
+        )
+        assertEquals(com.screenarc.app.ui.overlay.OverlayEdgeAnchor.CENTER_RIGHT, centerRight)
+
+        val centerLeft = com.screenarc.app.ui.overlay.RadialMenuGeometry.findNearestAnchor(
+            androidx.compose.ui.geometry.Offset(-300f, -40f),
+            verticalMiddleThresholdPx = 150f
+        )
+        assertEquals(com.screenarc.app.ui.overlay.OverlayEdgeAnchor.CENTER_LEFT, centerLeft)
+
+        // Corners
+        val topRight = com.screenarc.app.ui.overlay.RadialMenuGeometry.findNearestAnchor(
+            androidx.compose.ui.geometry.Offset(300f, -400f),
+            verticalMiddleThresholdPx = 150f
+        )
+        assertEquals(com.screenarc.app.ui.overlay.OverlayEdgeAnchor.TOP_RIGHT, topRight)
+
+        val bottomLeft = com.screenarc.app.ui.overlay.RadialMenuGeometry.findNearestAnchor(
+            androidx.compose.ui.geometry.Offset(-300f, 400f),
+            verticalMiddleThresholdPx = 150f
+        )
+        assertEquals(com.screenarc.app.ui.overlay.OverlayEdgeAnchor.BOTTOM_LEFT, bottomLeft)
+    }
+
+    @Test
+    fun testTextOpHitTestingAndSelectionToolCompatibility() {
+        val textOp = EditOp.TextOp(
+            text = "Sensitive Data",
+            x = 100f,
+            y = 200f,
+            textSize = 32f,
+            color = 0xFF000000.toInt()
+        )
+        // Hit point near text baseline
+        assertTrue(textOp.containsPoint(120f, 190f, tolerance = 20f))
+        // Hit point slightly above baseline
+        assertTrue(textOp.containsPoint(105f, 175f, tolerance = 20f))
+        // Far point
+        assertFalse(textOp.containsPoint(500f, 500f, tolerance = 20f))
+
+        // Ensure EditTool SELECT_MOVE and PAN_ZOOM are mutually compatible
+        assertEquals(EditTool.SELECT_MOVE, EditTool.PAN_ZOOM)
+    }
 }

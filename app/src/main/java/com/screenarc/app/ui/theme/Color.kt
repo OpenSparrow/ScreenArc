@@ -1,7 +1,61 @@
 package com.screenarc.app.ui.theme
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
+// =================================================================
+// 1. HERO PALETTE: Dark Glassmorphism with Soft Glows (DEFAULT)
+// =================================================================
+val ElectricIndigo = Color(0xFF6C63FF)
+val ElectricIndigoDark = Color(0xFF4D44DB)
+val ElectricIndigoContainer = Color(0xFF231F4A)
+val OnElectricIndigoContainer = Color(0xFFE4E1FF)
+
+val AuroraCyan = Color(0xFF00F2FE)
+val AuroraCyanDark = Color(0xFF00A8B2)
+val AuroraCyanContainer = Color(0xFF003842)
+val OnAuroraCyanContainer = Color(0xFF8FF6FF)
+
+val Ultraviolet = Color(0xFF8E2DE2)
+val UltravioletDark = Color(0xFF6318A8)
+val UltravioletContainer = Color(0xFF38105B)
+val OnUltravioletContainer = Color(0xFFF0D6FF)
+
+// Hero Tonal Dark Surfaces
+val DarkGlassBackground = Color(0xFF08070D)
+val DarkGlassSurface = Color(0xFF12101C)
+val DarkGlassSurfaceElevated = Color(0xFF1A1828)
+val DarkGlassSurfaceHighest = Color(0xFF26223B)
+val DarkGlassSurfaceVariant = Color(0xFF1E1A2F)
+val DarkGlassOnSurface = Color(0xFFF3F1FA)
+val DarkGlassOnSurfaceVariant = Color(0xFFB5B0CA)
+val DarkGlassOutline = Color(0xFF332E4E)
+val DarkGlassOutlineVariant = Color(0xFF211D33)
+val DarkGlassOutlineGlow = Color(0x666C63FF)
+val DarkGlassSpecularRim = Color(0x40FFFFFF)
+
+// Translucent Frosted Glass Tokens
+val GlassFrostDark = Color(0x2E161329)
+val GlassFrostDarkElevated = Color(0x44221C3D)
+val GlassRimTop = Color(0x55FFFFFF)
+val GlassRimBottom = Color(0x15FFFFFF)
+
+// Shimmer Animation Tokens
+val ShimmerBaseDark = Color(0xFF181528)
+val ShimmerHighlightDark = Color(0xFF2E294B)
+val ShimmerBaseLight = Color(0xFFE2E8F0)
+val ShimmerHighlightLight = Color(0xFFF8FAFC)
+
+// Arc Hero Gradients
+val ArcHeroGradientColors = listOf(AuroraCyan, ElectricIndigo, Ultraviolet)
+val ArcHeroBrush = Brush.linearGradient(ArcHeroGradientColors)
+
+// =================================================================
+// 2. MD3 Standard / Monet Light & Dark
+// =================================================================
 val Purple80 = Color(0xFFD0BCFF)
 val PurpleGrey80 = Color(0xFFCCC2DC)
 val Pink80 = Color(0xFFEFB8C8)
@@ -10,7 +64,6 @@ val Purple40 = Color(0xFF6650A4)
 val PurpleGrey40 = Color(0xFF625B71)
 val Pink40 = Color(0xFF7D5260)
 
-// MD3 Standard / Monet Light Palette
 val md_theme_light_primary = Color(0xFF6750A4)
 val md_theme_light_onPrimary = Color(0xFFFFFFFF)
 val md_theme_light_primaryContainer = Color(0xFFEADDFF)
@@ -32,7 +85,6 @@ val md_theme_light_onSurfaceVariant = Color(0xFF49454F)
 val md_theme_light_outline = Color(0xFF79747E)
 val md_theme_light_surfaceContainerHigh = Color(0xFFECE6F0)
 
-// MD3 Standard / Monet Dark Palette
 val md_theme_dark_primary = Color(0xFFD0BCFF)
 val md_theme_dark_onPrimary = Color(0xFF381E72)
 val md_theme_dark_primaryContainer = Color(0xFF4F378B)
@@ -54,7 +106,9 @@ val md_theme_dark_onSurfaceVariant = Color(0xFFCAC4D0)
 val md_theme_dark_outline = Color(0xFF938F99)
 val md_theme_dark_surfaceContainerHigh = Color(0xFF2B2930)
 
-// 1. Midnight AMOLED (Pitch Black 0% Battery Draw)
+// =================================================================
+// 3. Midnight AMOLED (Pure Pitch Black 0% Battery Draw)
+// =================================================================
 val amoled_primary = Color(0xFF00E5FF)
 val amoled_onPrimary = Color(0xFF000000)
 val amoled_primaryContainer = Color(0xFF00363F)
@@ -76,7 +130,9 @@ val amoled_onSurfaceVariant = Color(0xFFB8B8B8)
 val amoled_outline = Color(0xFF2B2B2B)
 val amoled_surfaceContainerHigh = Color(0xFF0A0A0A)
 
-// 2. Catppuccin Mocha (Cozy Dark Espresso & Lavender)
+// =================================================================
+// 4. Catppuccin Mocha & Latte
+// =================================================================
 val catppuccin_mocha_primary = Color(0xFFCBA6F7)
 val catppuccin_mocha_onPrimary = Color(0xFF1E1E2E)
 val catppuccin_mocha_primaryContainer = Color(0xFF45475A)
@@ -98,7 +154,6 @@ val catppuccin_mocha_onSurfaceVariant = Color(0xFFA6ADC8)
 val catppuccin_mocha_outline = Color(0xFF585B70)
 val catppuccin_mocha_surfaceContainerHigh = Color(0xFF24273A)
 
-// Catppuccin Latte (Light)
 val catppuccin_latte_primary = Color(0xFF8839EF)
 val catppuccin_latte_onPrimary = Color(0xFFFFFFFF)
 val catppuccin_latte_primaryContainer = Color(0xFFEA76CB)
@@ -117,7 +172,9 @@ val catppuccin_latte_onSurfaceVariant = Color(0xFF5C5F77)
 val catppuccin_latte_outline = Color(0xFF9CA0B0)
 val catppuccin_latte_surfaceContainerHigh = Color(0xFFDFE3EC)
 
-// 3. Dracula (Dark Slate & Neon Accents)
+// =================================================================
+// 5. Dracula / Neon Glow
+// =================================================================
 val dracula_primary = Color(0xFFFF79C6)
 val dracula_onPrimary = Color(0xFF282A36)
 val dracula_primaryContainer = Color(0xFF44475A)
@@ -139,7 +196,30 @@ val dracula_onSurfaceVariant = Color(0xFFBFBFBA)
 val dracula_outline = Color(0xFF6272A4)
 val dracula_surfaceContainerHigh = Color(0xFF343746)
 
-// 4. Nord Frost (Polar Night & Glacial Blues)
+val cyberpunk_primary = Color(0xFFFFE600)
+val cyberpunk_onPrimary = Color(0xFF000000)
+val cyberpunk_primaryContainer = Color(0xFF474000)
+val cyberpunk_onPrimaryContainer = Color(0xFFFFF380)
+val cyberpunk_secondary = Color(0xFF00F0FF)
+val cyberpunk_onSecondary = Color(0xFF000000)
+val cyberpunk_secondaryContainer = Color(0xFF004347)
+val cyberpunk_onSecondaryContainer = Color(0xFF99F8FF)
+val cyberpunk_tertiary = Color(0xFFFF0055)
+val cyberpunk_onTertiary = Color(0xFFFFFFFF)
+val cyberpunk_tertiaryContainer = Color(0xFF52001B)
+val cyberpunk_onTertiaryContainer = Color(0xFFFF99BB)
+val cyberpunk_background = Color(0xFF0A0711)
+val cyberpunk_onBackground = Color(0xFFF2F0FA)
+val cyberpunk_surface = Color(0xFF120E1E)
+val cyberpunk_onSurface = Color(0xFFF2F0FA)
+val cyberpunk_surfaceVariant = Color(0xFF261D3D)
+val cyberpunk_onSurfaceVariant = Color(0xFFD0C7E8)
+val cyberpunk_outline = Color(0xFF6B5899)
+val cyberpunk_surfaceContainerHigh = Color(0xFF1E1730)
+
+// =================================================================
+// 6. Nordic Blue (Nord Frost)
+// =================================================================
 val nord_frost_primary = Color(0xFF88C0D0)
 val nord_frost_onPrimary = Color(0xFF2E3440)
 val nord_frost_primaryContainer = Color(0xFF3B4252)
@@ -159,7 +239,6 @@ val nord_frost_onSurfaceVariant = Color(0xFFD8DEE9)
 val nord_frost_outline = Color(0xFF4C566A)
 val nord_frost_surfaceContainerHigh = Color(0xFF3B4252)
 
-// Nord Frost Light
 val nord_snow_primary = Color(0xFF5E81AC)
 val nord_snow_onPrimary = Color(0xFFFFFFFF)
 val nord_snow_primaryContainer = Color(0xFFD8DEE9)
@@ -178,7 +257,9 @@ val nord_snow_onSurfaceVariant = Color(0xFF4C566A)
 val nord_snow_outline = Color(0xFF98A2B3)
 val nord_snow_surfaceContainerHigh = Color(0xFFD8DEE9)
 
-// 5. Sakura Blossom (Cherry Blossom Rose & Petals)
+// =================================================================
+// 7. Sunset Rose (Sakura Blossom)
+// =================================================================
 val sakura_dark_primary = Color(0xFFF06292)
 val sakura_dark_onPrimary = Color(0xFF3E1124)
 val sakura_dark_primaryContainer = Color(0xFF5C1D38)
@@ -216,24 +297,25 @@ val sakura_light_onSurfaceVariant = Color(0xFF5A444C)
 val sakura_light_outline = Color(0xFF9E7E88)
 val sakura_light_surfaceContainerHigh = Color(0xFFFCE4EC)
 
-// 6. Cyberpunk Neon (Night City Neon Yellow & Vivid Cyan)
-val cyberpunk_primary = Color(0xFFFFE600)
-val cyberpunk_onPrimary = Color(0xFF000000)
-val cyberpunk_primaryContainer = Color(0xFF474000)
-val cyberpunk_onPrimaryContainer = Color(0xFFFFF380)
-val cyberpunk_secondary = Color(0xFF00F0FF)
-val cyberpunk_onSecondary = Color(0xFF000000)
-val cyberpunk_secondaryContainer = Color(0xFF004347)
-val cyberpunk_onSecondaryContainer = Color(0xFF99F8FF)
-val cyberpunk_tertiary = Color(0xFFFF0055)
-val cyberpunk_onTertiary = Color(0xFFFFFFFF)
-val cyberpunk_tertiaryContainer = Color(0xFF52001B)
-val cyberpunk_onTertiaryContainer = Color(0xFFFF99BB)
-val cyberpunk_background = Color(0xFF0A0711)
-val cyberpunk_onBackground = Color(0xFFF2F0FA)
-val cyberpunk_surface = Color(0xFF120E1E)
-val cyberpunk_onSurface = Color(0xFFF2F0FA)
-val cyberpunk_surfaceVariant = Color(0xFF261D3D)
-val cyberpunk_onSurfaceVariant = Color(0xFFD0C7E8)
-val cyberpunk_outline = Color(0xFF6B5899)
-val cyberpunk_surfaceContainerHigh = Color(0xFF1E1730)
+// =================================================================
+// ScreenArc Extended Semantic Tokens
+// =================================================================
+data class ScreenArcCustomColors(
+    val primaryGlow: Color = ElectricIndigo.copy(alpha = 0.5f),
+    val secondaryGlow: Color = AuroraCyan.copy(alpha = 0.4f),
+    val tertiaryGlow: Color = Ultraviolet.copy(alpha = 0.4f),
+    val arcGradient: List<Color> = ArcHeroGradientColors,
+    val glassSurface: Color = GlassFrostDark,
+    val glassSurfaceElevated: Color = GlassFrostDarkElevated,
+    val glassRimTop: Color = GlassRimTop,
+    val glassRimBottom: Color = GlassRimBottom,
+    val shimmerBase: Color = ShimmerBaseDark,
+    val shimmerHighlight: Color = ShimmerHighlightDark
+)
+
+val LocalScreenArcCustomColors = staticCompositionLocalOf { ScreenArcCustomColors() }
+
+val androidx.compose.material3.MaterialTheme.customColors: ScreenArcCustomColors
+    @Composable
+    @ReadOnlyComposable
+    get() = LocalScreenArcCustomColors.current

@@ -17,3 +17,5 @@ app/build/
 build/
 /dist/
 *.apk
+
+.kotlin/

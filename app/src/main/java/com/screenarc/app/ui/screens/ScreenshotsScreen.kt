@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileMove
 import androidx.compose.material.icons.filled.FilterList
+import com.screenarc.app.ui.components.EmptyStateView
 import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
@@ -471,26 +472,11 @@ fun ScreenshotsScreen(
                         .padding(bottom = 64.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                            modifier = Modifier.size(56.dp)
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = if (query.text.isNotEmpty()) "No screenshots matched '${query.text}'" else "No screenshots found",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Try searching by filename, detected text (e.g. 'movie', 'tech'), or clear filters.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    }
+                    EmptyStateView(
+                        title = if (query.text.isNotEmpty()) "No screenshots matched '${query.text}'" else "No screenshots found",
+                        description = "Try searching by filename, detected text (e.g. 'movie', 'tech'), or clear filters.",
+                        icon = Icons.Default.Search
+                    )
                 }
             } else {
                 LazyVerticalGrid(

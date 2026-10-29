@@ -55,6 +55,27 @@ class EditorCanvasView(
 
     private var committedOpsList: List<EditOp> = emptyList()
 
+    // ─── Layer Selection & Dragging State ─────────────────────────────────────
+    var selectedOpId: String? = null
+        set(value) {
+            if (field != value) {
+                field = value
+                dragDeltaX = 0f
+                dragDeltaY = 0f
+                isCommittedLayerDirty = true
+                invalidate()
+            }
+        }
+
+    var onSelectOp: ((EditOp?) -> Unit)? = null
+    var onUpdateOp: ((EditOp) -> Unit)? = null
+
+    private var isDraggingSelectedLayer = false
+    private var dragStartTouchX = 0f
+    private var dragStartTouchY = 0f
+    private var dragDeltaX = 0f
+    private var dragDeltaY = 0f
+
     // ─── Current Tool State ───────────────────────────────────────────────────
     var activeTool: EditTool = EditTool.FREEHAND_BRUSH
     var strokeSize: Float = 24f
@@ -78,6 +99,28 @@ class EditorCanvasView(
         strokeJoin = Paint.Join.ROUND
     }
 
+    private val selectionBoxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        color = 0xFF2196F3.toInt()
+    }
+
+    private val selectionFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0x222196F3.toInt()
+    }
+
+    private val selectionHandlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0xFF2196F3.toInt()
+    }
+
+    private val selectionHandleBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+        color = Color.WHITE
+    }
+
     private val inProgressPath = Path()
     private val inProgressPoints = mutableListOf<OpPoint>()
     private var activeShapeStartX = 0f
@@ -95,7 +138,11 @@ class EditorCanvasView(
 
     private var lastTouchX = 0f
     private var lastTouchY = 0f
+    private var touchDownScreenX = 0f
+    private var touchDownScreenY = 0f
     private var isMultiTouchGesture = false
+    private var didTouchHitOpOnDown = false
+    private var hasMovedPastSlop = false
 
     private val scaleGestureDetector = ScaleGestureDetector(
         context,
@@ -189,7 +236,7 @@ class EditorCanvasView(
         // 1. Base Layer: draw original preview bitmap
         canvas.drawBitmap(bmp, 0f, 0f, baseBitmapPaint)
 
-        // 2. Committed Layer: draw cached layer bitmap
+        // 2. Committed Layer: draw cached layer bitmap (excludes currently selected op)
         ensureCommittedBitmap()
         if (isCommittedLayerDirty) {
             rebuildCommittedLayer()
@@ -199,7 +246,21 @@ class EditorCanvasView(
             canvas.drawBitmap(it, 0f, 0f, committedBitmapPaint)
         }
 
-        // 3. Active Layer: draw in-progress op on top
+        // 3. Selected Op: drawn dynamically on top with real-time drag translation
+        selectedOpId?.let { selId ->
+            val selectedOp = committedOpsList.find { it.id == selId }
+            if (selectedOp != null) {
+                val movedOp = if (dragDeltaX != 0f || dragDeltaY != 0f) {
+                    selectedOp.translatedBy(dragDeltaX, dragDeltaY)
+                } else {
+                    selectedOp
+                }
+                drawOpToCanvas(canvas, movedOp)
+                drawSelectionHighlight(canvas, movedOp)
+            }
+        }
+
+        // 4. Active Layer: draw in-progress op on top
         if (isActivelyDrawing) {
             drawInProgressOp(canvas)
         }
@@ -212,8 +273,42 @@ class EditorCanvasView(
         committedLayerBitmap?.eraseColor(Color.TRANSPARENT)
 
         for (op in committedOpsList) {
-            drawOpToCanvas(cCanvas, op)
+            if (op.id != selectedOpId) {
+                drawOpToCanvas(cCanvas, op)
+            }
         }
+    }
+
+    private fun getEffectiveHitTolerance(): Float {
+        val density = resources.displayMetrics.density
+        return maxOf((48f * density) / maxOf(scaleFactor, 0.1f), 64f)
+    }
+
+    private fun drawSelectionHighlight(canvas: Canvas, op: EditOp) {
+        val bounds = op.getBounds()
+        val rect = RectF(bounds.left, bounds.top, bounds.right, bounds.bottom)
+        canvas.drawRoundRect(rect, 8f, 8f, selectionFillPaint)
+        canvas.drawRoundRect(rect, 8f, 8f, selectionBoxPaint)
+
+        // 4 corner handles
+        val handleRadius = 10f
+        val corners = arrayOf(
+            rect.left to rect.top,
+            rect.right to rect.top,
+            rect.right to rect.bottom,
+            rect.left to rect.bottom
+        )
+        for ((cx, cy) in corners) {
+            canvas.drawCircle(cx, cy, handleRadius, selectionHandlePaint)
+            canvas.drawCircle(cx, cy, handleRadius, selectionHandleBorderPaint)
+        }
+
+        // Top drag handle indicator
+        val midX = (rect.left + rect.right) / 2f
+        val topY = rect.top - 20f
+        canvas.drawLine(midX, rect.top, midX, topY, selectionBoxPaint)
+        canvas.drawCircle(midX, topY, handleRadius, selectionHandlePaint)
+        canvas.drawCircle(midX, topY, handleRadius, selectionHandleBorderPaint)
     }
 
     private fun drawOpToCanvas(canvas: Canvas, op: EditOp) {
@@ -381,6 +476,12 @@ class EditorCanvasView(
 
         if (event.pointerCount >= 2) {
             isMultiTouchGesture = true
+            if (isDraggingSelectedLayer) {
+                isDraggingSelectedLayer = false
+                dragDeltaX = 0f
+                dragDeltaY = 0f
+                invalidate()
+            }
             // Handle two-finger panning
             when (event.actionMasked) {
                 MotionEvent.ACTION_MOVE -> {
@@ -420,49 +521,120 @@ class EditorCanvasView(
         val imageX = touchCoords[0]
         val imageY = touchCoords[1]
 
-        // If Pan/Zoom tool selected, single finger pans
-        if (activeTool == EditTool.PAN_ZOOM) {
+        // Handle active dragging of an already selected layer
+        if (isDraggingSelectedLayer) {
             when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    lastTouchX = screenX
-                    lastTouchY = screenY
-                }
                 MotionEvent.ACTION_MOVE -> {
-                    val dx = screenX - lastTouchX
-                    val dy = screenY - lastTouchY
-                    translationX += dx
-                    translationY += dy
-                    lastTouchX = screenX
-                    lastTouchY = screenY
-                    updateViewportMatrix()
+                    dragDeltaX = imageX - dragStartTouchX
+                    dragDeltaY = imageY - dragStartTouchY
                     invalidate()
+                    return true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    isDraggingSelectedLayer = false
+                    val selId = selectedOpId
+                    val selOp = committedOpsList.find { it.id == selId }
+                    if (selOp != null && (dragDeltaX != 0f || dragDeltaY != 0f)) {
+                        val finalOp = selOp.translatedBy(dragDeltaX, dragDeltaY)
+                        dragDeltaX = 0f
+                        dragDeltaY = 0f
+                        onUpdateOp?.invoke(finalOp)
+                    } else {
+                        dragDeltaX = 0f
+                        dragDeltaY = 0f
+                    }
+                    invalidateCommittedCache()
+                    invalidate()
+                    return true
                 }
             }
-            return true
         }
 
-        // Eraser tool
-        if (activeTool == EditTool.ERASER) {
-            if (event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_MOVE) {
-                onEraseOp(imageX, imageY)
-            }
-            return true
-        }
-
-        // Text label tool: tap to place
-        if (activeTool == EditTool.TEXT) {
-            if (event.actionMasked == MotionEvent.ACTION_UP) {
-                onRequestTextEntry(imageX, imageY)
-            }
-            return true
-        }
-
-        // Annotation Drawing tools (Freehand, Pixelate, Redact Brush, Redact Box, Shape)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 isMultiTouchGesture = false
-                isActivelyDrawing = true
+                lastTouchX = screenX
+                lastTouchY = screenY
+                touchDownScreenX = screenX
+                touchDownScreenY = screenY
+                didTouchHitOpOnDown = false
+                hasMovedPastSlop = false
 
+                val hitTol = getEffectiveHitTolerance()
+
+                // Check 1: Did user touch the currently selected layer to move it?
+                val currentSelected = selectedOpId?.let { id -> committedOpsList.find { it.id == id } }
+                if (currentSelected != null && currentSelected.containsPoint(imageX, imageY, tolerance = hitTol)) {
+                    isDraggingSelectedLayer = true
+                    didTouchHitOpOnDown = true
+                    dragStartTouchX = imageX
+                    dragStartTouchY = imageY
+                    dragDeltaX = 0f
+                    dragDeltaY = 0f
+                    invalidate()
+                    return true
+                }
+
+                // Check 2: Hit-test all committed ops (topmost first)
+                val hitOp = committedOpsList.findLast { it.containsPoint(imageX, imageY, tolerance = hitTol) }
+                if (hitOp != null) {
+                    didTouchHitOpOnDown = true
+                }
+
+                // Mode-specific selection / actions
+                if (activeTool == EditTool.SELECT_MOVE || activeTool == EditTool.PAN_ZOOM) {
+                    if (hitOp != null) {
+                        selectedOpId = hitOp.id
+                        onSelectOp?.invoke(hitOp)
+                        isDraggingSelectedLayer = true
+                        dragStartTouchX = imageX
+                        dragStartTouchY = imageY
+                        dragDeltaX = 0f
+                        dragDeltaY = 0f
+                        invalidateCommittedCache()
+                        return true
+                    } else if (selectedOpId != null) {
+                        selectedOpId = null
+                        onSelectOp?.invoke(null)
+                        invalidateCommittedCache()
+                    }
+                    return true
+                }
+
+                if (activeTool == EditTool.TEXT) {
+                    if (hitOp != null) {
+                        selectedOpId = hitOp.id
+                        onSelectOp?.invoke(hitOp)
+                        isDraggingSelectedLayer = true
+                        dragStartTouchX = imageX
+                        dragStartTouchY = imageY
+                        dragDeltaX = 0f
+                        dragDeltaY = 0f
+                        invalidateCommittedCache()
+                        return true
+                    } else if (selectedOpId != null) {
+                        selectedOpId = null
+                        onSelectOp?.invoke(null)
+                        invalidateCommittedCache()
+                        return true
+                    }
+                    return true
+                }
+
+                if (activeTool == EditTool.ERASER) {
+                    onEraseOp(imageX, imageY)
+                    return true
+                }
+
+                // For drawing tools (Brush, Pixelate, Redact, Shape), deselect any existing selection
+                if (selectedOpId != null) {
+                    selectedOpId = null
+                    onSelectOp?.invoke(null)
+                    invalidateCommittedCache()
+                }
+
+                // Start active drawing
+                isActivelyDrawing = true
                 activeShapeStartX = imageX
                 activeShapeStartY = imageY
                 activeShapeCurrentX = imageX
@@ -474,9 +646,38 @@ class EditorCanvasView(
                 inProgressPath.reset()
                 inProgressPath.moveTo(imageX, imageY)
                 invalidate()
+                return true
             }
 
             MotionEvent.ACTION_MOVE -> {
+                val dxScreen = screenX - touchDownScreenX
+                val dyScreen = screenY - touchDownScreenY
+                val density = resources.displayMetrics.density
+                if ((dxScreen * dxScreen + dyScreen * dyScreen) > (8f * density) * (8f * density)) {
+                    hasMovedPastSlop = true
+                }
+
+                if (activeTool == EditTool.SELECT_MOVE || activeTool == EditTool.PAN_ZOOM) {
+                    val dx = screenX - lastTouchX
+                    val dy = screenY - lastTouchY
+                    translationX += dx
+                    translationY += dy
+                    lastTouchX = screenX
+                    lastTouchY = screenY
+                    updateViewportMatrix()
+                    invalidate()
+                    return true
+                }
+
+                if (activeTool == EditTool.ERASER) {
+                    onEraseOp(imageX, imageY)
+                    return true
+                }
+
+                if (activeTool == EditTool.TEXT) {
+                    return true
+                }
+
                 if (!isActivelyDrawing || isMultiTouchGesture) return true
 
                 activeShapeCurrentX = imageX
@@ -490,9 +691,21 @@ class EditorCanvasView(
                 }
                 inProgressPoints.add(OpPoint(imageX, imageY))
                 invalidate()
+                return true
             }
 
             MotionEvent.ACTION_UP -> {
+                if (activeTool == EditTool.SELECT_MOVE || activeTool == EditTool.PAN_ZOOM) {
+                    return true
+                }
+
+                if (activeTool == EditTool.TEXT) {
+                    if (!isMultiTouchGesture && !isDraggingSelectedLayer && !didTouchHitOpOnDown && !hasMovedPastSlop) {
+                        onRequestTextEntry(imageX, imageY)
+                    }
+                    return true
+                }
+
                 if (!isActivelyDrawing || isMultiTouchGesture) {
                     isActivelyDrawing = false
                     return true
@@ -506,11 +719,16 @@ class EditorCanvasView(
                 val completedOp = createCompletedOp()
                 if (completedOp != null) {
                     onCommitOp(completedOp)
+                    if (activeTool == EditTool.SHAPE || activeTool == EditTool.SOLID_REDACT_BOX) {
+                        selectedOpId = completedOp.id
+                        onSelectOp?.invoke(completedOp)
+                    }
                 }
 
                 inProgressPoints.clear()
                 inProgressPath.reset()
                 invalidate()
+                return true
             }
 
             MotionEvent.ACTION_CANCEL -> {
@@ -518,6 +736,7 @@ class EditorCanvasView(
                 inProgressPoints.clear()
                 inProgressPath.reset()
                 invalidate()
+                return true
             }
         }
 

@@ -33,6 +33,7 @@ class RedactionEditorActivity : ComponentActivity() {
         val uri = Uri.parse(uriString)
         val displayName = intent.getStringExtra(EXTRA_DISPLAY_NAME) ?: "Screenshot.png"
         val mode = intent.getStringExtra(EXTRA_MODE) ?: MODE_SHARE
+        val isShareMode = mode == MODE_SHARE
         val isDeleteMode = mode == MODE_DELETE
         val isShareAndDeleteMode = mode == MODE_SHARE_AND_DELETE
 
@@ -56,6 +57,7 @@ class RedactionEditorActivity : ComponentActivity() {
                 RedactionEditorScreen(
                     uri = uri,
                     displayName = displayName,
+                    isShareMode = isShareMode,
                     isDeleteMode = isDeleteMode,
                     isShareAndDeleteMode = isShareAndDeleteMode,
                     language = settings.ocrLanguage,
@@ -84,7 +86,7 @@ class RedactionEditorActivity : ComponentActivity() {
 
         fun newIntent(context: Context, screenshot: ScreenshotItem, mode: String): Intent {
             return Intent(context, RedactionEditorActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK
                 putExtra(EXTRA_URI, screenshot.uri.toString())
                 putExtra(EXTRA_DISPLAY_NAME, screenshot.displayName)
                 putExtra(EXTRA_MODE, mode)

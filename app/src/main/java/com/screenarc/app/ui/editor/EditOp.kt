@@ -33,14 +33,18 @@ data class OpRect(
  * Tools available in the lightweight image editor.
  */
 enum class EditTool(val displayName: String) {
-    PAN_ZOOM("Pan & Zoom"),
+    SELECT_MOVE("Select / Move"),
     FREEHAND_BRUSH("Brush"),
     PIXELATE_BRUSH("Pixelate"),
     SOLID_REDACT_BRUSH("Redact Pen"),
     SOLID_REDACT_BOX("Redact Box"),
     SHAPE("Shape"),
     ERASER("Eraser"),
-    TEXT("Text")
+    TEXT("Text");
+
+    companion object {
+        val PAN_ZOOM: EditTool = SELECT_MOVE
+    }
 }
 
 /**
@@ -63,6 +67,7 @@ sealed class EditOp {
     abstract val id: String
     abstract fun getBounds(): OpRect
     abstract fun containsPoint(x: Float, y: Float, tolerance: Float): Boolean
+    abstract fun translatedBy(dx: Float, dy: Float): EditOp
 
     /**
      * Standard freehand brush stroke.
@@ -99,6 +104,10 @@ sealed class EditOp {
                 if ((dx * dx + dy * dy) <= effTolSq) return true
             }
             return false
+        }
+
+        override fun translatedBy(dx: Float, dy: Float): FreehandStroke {
+            return copy(points = points.map { OpPoint(it.x + dx, it.y + dy) })
         }
     }
 
@@ -138,6 +147,10 @@ sealed class EditOp {
             }
             return false
         }
+
+        override fun translatedBy(dx: Float, dy: Float): PixelateStroke {
+            return copy(points = points.map { OpPoint(it.x + dx, it.y + dy) })
+        }
     }
 
     /**
@@ -175,6 +188,10 @@ sealed class EditOp {
             }
             return false
         }
+
+        override fun translatedBy(dx: Float, dy: Float): SolidRedactStroke {
+            return copy(points = points.map { OpPoint(it.x + dx, it.y + dy) })
+        }
     }
 
     /**
@@ -197,6 +214,15 @@ sealed class EditOp {
 
         override fun containsPoint(x: Float, y: Float, tolerance: Float): Boolean {
             return getBounds().contains(x, y, tolerance)
+        }
+
+        override fun translatedBy(dx: Float, dy: Float): SolidRedactBox {
+            return copy(
+                left = left + dx,
+                top = top + dy,
+                right = right + dx,
+                bottom = bottom + dy
+            )
         }
     }
 
@@ -231,6 +257,15 @@ sealed class EditOp {
         override fun containsPoint(x: Float, y: Float, tolerance: Float): Boolean {
             return getBounds().contains(x, y, tolerance)
         }
+
+        override fun translatedBy(dx: Float, dy: Float): ShapeOp {
+            return copy(
+                startX = startX + dx,
+                startY = startY + dy,
+                endX = endX + dx,
+                endY = endY + dy
+            )
+        }
     }
 
     /**
@@ -248,13 +283,20 @@ sealed class EditOp {
         val backgroundColor: Int? = null
     ) : EditOp() {
         override fun getBounds(): OpRect {
-            val width = text.length * textSize * 0.65f
-            val height = textSize * 1.3f
-            return OpRect(x - 8f, y - height, x + width + 8f, y + 8f)
+            val width = maxOf(text.length * textSize * 0.72f, 64f)
+            val height = textSize * 1.35f
+            return OpRect(x - 20f, y - height - 12f, x + width + 20f, y + 20f)
         }
 
         override fun containsPoint(x: Float, y: Float, tolerance: Float): Boolean {
             return getBounds().contains(x, y, tolerance)
+        }
+
+        override fun translatedBy(dx: Float, dy: Float): TextOp {
+            return copy(
+                x = x + dx,
+                y = y + dy
+            )
         }
     }
 }

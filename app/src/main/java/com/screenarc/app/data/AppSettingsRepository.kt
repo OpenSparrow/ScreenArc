@@ -13,6 +13,40 @@ enum class UiDesignStyle(val id: String, val displayName: String, val subtitle: 
     GLASSMORPHISM("glassmorphism", "Glassmorphism", "Frosted glass acrylic aesthetic with translucent blur highlights")
 }
 
+enum class OverlayPlacement(val id: String, val displayName: String) {
+    TOP_LEFT("top_left", "Left Top"),
+    CENTER_LEFT("center_left", "Left Middle"),
+    BOTTOM_LEFT("bottom_left", "Left Bottom"),
+    TOP_RIGHT("top_right", "Right Top"),
+    CENTER_RIGHT("center_right", "Right Middle"),
+    BOTTOM_RIGHT("bottom_right", "Right Bottom");
+
+    fun toEdgeAnchor(): com.screenarc.app.ui.overlay.OverlayEdgeAnchor = when (this) {
+        TOP_LEFT -> com.screenarc.app.ui.overlay.OverlayEdgeAnchor.TOP_LEFT
+        CENTER_LEFT -> com.screenarc.app.ui.overlay.OverlayEdgeAnchor.CENTER_LEFT
+        BOTTOM_LEFT -> com.screenarc.app.ui.overlay.OverlayEdgeAnchor.BOTTOM_LEFT
+        TOP_RIGHT -> com.screenarc.app.ui.overlay.OverlayEdgeAnchor.TOP_RIGHT
+        CENTER_RIGHT -> com.screenarc.app.ui.overlay.OverlayEdgeAnchor.CENTER_RIGHT
+        BOTTOM_RIGHT -> com.screenarc.app.ui.overlay.OverlayEdgeAnchor.BOTTOM_RIGHT
+    }
+
+    companion object {
+        fun fromId(id: String?, default: OverlayPlacement = BOTTOM_RIGHT): OverlayPlacement {
+            return entries.find { it.id.equals(id, ignoreCase = true) } ?: default
+        }
+
+        fun fromEdgeAnchor(anchor: com.screenarc.app.ui.overlay.OverlayEdgeAnchor, default: OverlayPlacement = BOTTOM_RIGHT): OverlayPlacement = when (anchor) {
+            com.screenarc.app.ui.overlay.OverlayEdgeAnchor.TOP_LEFT -> TOP_LEFT
+            com.screenarc.app.ui.overlay.OverlayEdgeAnchor.CENTER_LEFT -> CENTER_LEFT
+            com.screenarc.app.ui.overlay.OverlayEdgeAnchor.BOTTOM_LEFT -> BOTTOM_LEFT
+            com.screenarc.app.ui.overlay.OverlayEdgeAnchor.TOP_RIGHT -> TOP_RIGHT
+            com.screenarc.app.ui.overlay.OverlayEdgeAnchor.CENTER_RIGHT -> CENTER_RIGHT
+            com.screenarc.app.ui.overlay.OverlayEdgeAnchor.BOTTOM_RIGHT -> BOTTOM_RIGHT
+            else -> default
+        }
+    }
+}
+
 data class AppSettings(
     val isServiceEnabled: Boolean = false,
     val bubbleSizeDp: Int = 64,
@@ -26,9 +60,11 @@ data class AppSettings(
     val autoOcrEnabled: Boolean = false,
     val autoAssignRulesEnabled: Boolean = false,
     val autoArchiveDays: Int = 0, // 0 = Off, 30, 60, 90 days
-    val themePreset: AppThemePreset = AppThemePreset.DYNAMIC_SYSTEM,
+    val themePreset: AppThemePreset = AppThemePreset.GLASSMORPHIC,
     val uiDesignStyle: UiDesignStyle = UiDesignStyle.MATERIAL,
-    val duplicateFinderEnabled: Boolean = true
+    val duplicateFinderEnabled: Boolean = true,
+    val overlayPlacement: OverlayPlacement = OverlayPlacement.BOTTOM_RIGHT,
+    val isOnboardingCompleted: Boolean = false
 )
 
 class AppSettingsRepository(context: Context) {
@@ -67,8 +103,8 @@ class AppSettingsRepository(context: Context) {
             com.screenarc.app.model.ArcDesignStyle.ORBIT
         }
 
-        val themePresetId = prefs.getString("theme_preset", AppThemePreset.DYNAMIC_SYSTEM.id)
-        val themePreset = AppThemePreset.fromId(themePresetId, AppThemePreset.DYNAMIC_SYSTEM)
+        val themePresetId = prefs.getString("theme_preset", AppThemePreset.GLASSMORPHIC.id)
+        val themePreset = AppThemePreset.fromId(themePresetId, AppThemePreset.GLASSMORPHIC)
 
         val uiStyleName = prefs.getString("ui_design_style", UiDesignStyle.MATERIAL.name)
         val uiStyle = try {
@@ -78,6 +114,9 @@ class AppSettingsRepository(context: Context) {
         }
 
         val autoRules = prefs.getBoolean("auto_assign_rules_enabled", false)
+
+        val placementId = prefs.getString("overlay_placement", OverlayPlacement.BOTTOM_RIGHT.id)
+        val overlayPlacement = OverlayPlacement.fromId(placementId, OverlayPlacement.BOTTOM_RIGHT)
 
         return AppSettings(
             isServiceEnabled = prefs.getBoolean("is_service_enabled", false),
@@ -94,7 +133,9 @@ class AppSettingsRepository(context: Context) {
             autoArchiveDays = prefs.getInt("auto_archive_days", 0),
             themePreset = themePreset,
             uiDesignStyle = uiStyle,
-            duplicateFinderEnabled = prefs.getBoolean("duplicate_finder_enabled", true)
+            duplicateFinderEnabled = prefs.getBoolean("duplicate_finder_enabled", true),
+            overlayPlacement = overlayPlacement,
+            isOnboardingCompleted = prefs.getBoolean("onboarding_completed", false)
         )
     }
 
@@ -123,6 +164,8 @@ class AppSettingsRepository(context: Context) {
             putString("theme_preset", finalUpdated.themePreset.id)
             putString("ui_design_style", finalUpdated.uiDesignStyle.name)
             putBoolean("duplicate_finder_enabled", finalUpdated.duplicateFinderEnabled)
+            putString("overlay_placement", finalUpdated.overlayPlacement.id)
+            putBoolean("onboarding_completed", finalUpdated.isOnboardingCompleted)
         }.apply()
         _settings.value = finalUpdated
     }
@@ -136,6 +179,10 @@ class AppSettingsRepository(context: Context) {
 
     fun setSectionExpanded(sectionKey: String, isExpanded: Boolean) {
         prefs.edit().putBoolean("section_expanded_$sectionKey", isExpanded).apply()
+    }
+
+    fun setOnboardingCompleted(completed: Boolean) {
+        updateSettings { it.copy(isOnboardingCompleted = completed) }
     }
 
     fun setAllSectionsExpanded(sectionKeys: List<String>, isExpanded: Boolean) {

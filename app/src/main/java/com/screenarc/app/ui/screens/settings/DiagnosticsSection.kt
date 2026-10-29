@@ -323,6 +323,20 @@ fun DiagnosticsSection(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Simulate Screenshot (Developer Test)")
                         }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        OutlinedButton(
+                            onClick = {
+                                onUpdateSettings { it.copy(isOnboardingCompleted = false) }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Icon(Icons.Default.HealthAndSafety, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Replay Onboarding Tour")
+                        }
                     }
                 }
             }

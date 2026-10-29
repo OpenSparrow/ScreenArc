@@ -6,6 +6,17 @@ import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import com.screenarc.app.ui.theme.AuroraCyan
+import com.screenarc.app.ui.theme.ElectricIndigo
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +33,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -104,7 +117,9 @@ fun OcrResultDialog(
     ) {
         Surface(
             modifier = modifier
-                .fillMaxSize()
+                .fillMaxWidth(0.95f)
+                .widthIn(max = 680.dp)
+                .fillMaxHeight(0.90f)
                 .padding(16.dp),
             shape = RoundedCornerShape(28.dp),
             color = MaterialTheme.colorScheme.surface,
@@ -164,6 +179,45 @@ fun OcrResultDialog(
                             contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxSize()
                         )
+
+                        // Animated Laser Scan-Line while OCR is running
+                        if (isLoading) {
+                            val scanTransition = rememberInfiniteTransition(label = "OcrScanTransition")
+                            val scanProgress by scanTransition.animateFloat(
+                                initialValue = 0.05f,
+                                targetValue = 0.95f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(1400, easing = FastOutSlowInEasing),
+                                    repeatMode = RepeatMode.Reverse
+                                ),
+                                label = "OcrScanProgress"
+                            )
+
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                val y = size.height * scanProgress
+                                // Soft gradient aura
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.Transparent,
+                                            ElectricIndigo.copy(alpha = 0.35f),
+                                            AuroraCyan.copy(alpha = 0.60f),
+                                            ElectricIndigo.copy(alpha = 0.35f),
+                                            Color.Transparent
+                                        ),
+                                        startY = (y - 36f).coerceAtLeast(0f),
+                                        endY = (y + 36f).coerceAtMost(size.height)
+                                    )
+                                )
+                                // High-intensity laser beam
+                                drawLine(
+                                    color = Color.White,
+                                    start = Offset(0f, y),
+                                    end = Offset(size.width, y),
+                                    strokeWidth = 2.dp.toPx()
+                                )
+                            }
+                        }
 
                         // Status pill overlay
                         Surface(

@@ -102,7 +102,7 @@ fun ThemePickerSection(
                     Spacer(modifier = Modifier.height(6.dp))
 
                     Text(
-                        text = "Choose between Dynamic Material You, Clean Light, Deep Dark, or neutral accent themes.",
+                        text = "Choose from 7 signature themes, featuring Dark Glassmorphism with soft ambient glows.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

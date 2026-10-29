@@ -1,9 +1,9 @@
 package com.screenarc.app.ui.theme
 
 import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -18,7 +18,38 @@ import androidx.compose.ui.platform.LocalContext
 import com.screenarc.app.data.UiDesignStyle
 import com.screenarc.app.model.AppThemePreset
 
-// Default Monet / Standard Schemas
+// =================================================================
+// 1. HERO PRESET: Dark Glassmorphic with Soft Glows (DEFAULT)
+// =================================================================
+private val DarkGlassmorphicColorScheme = darkColorScheme(
+    primary = ElectricIndigo,
+    onPrimary = Color.White,
+    primaryContainer = ElectricIndigoContainer,
+    onPrimaryContainer = OnElectricIndigoContainer,
+    secondary = AuroraCyan,
+    onSecondary = Color(0xFF041820),
+    secondaryContainer = AuroraCyanContainer,
+    onSecondaryContainer = OnAuroraCyanContainer,
+    tertiary = Ultraviolet,
+    onTertiary = Color.White,
+    tertiaryContainer = UltravioletContainer,
+    onTertiaryContainer = OnUltravioletContainer,
+    background = DarkGlassBackground,
+    onBackground = DarkGlassOnSurface,
+    surface = DarkGlassSurface,
+    onSurface = DarkGlassOnSurface,
+    surfaceVariant = DarkGlassSurfaceVariant,
+    onSurfaceVariant = DarkGlassOnSurfaceVariant,
+    surfaceContainer = DarkGlassSurface,
+    surfaceContainerHigh = DarkGlassSurfaceElevated,
+    surfaceContainerHighest = DarkGlassSurfaceHighest,
+    outline = DarkGlassOutline,
+    outlineVariant = DarkGlassOutlineVariant
+)
+
+// =================================================================
+// 2. Monet / Standard Schemas
+// =================================================================
 private val DarkColorScheme = darkColorScheme(
     primary = md_theme_dark_primary,
     onPrimary = md_theme_dark_onPrimary,
@@ -65,7 +96,9 @@ private val LightColorScheme = lightColorScheme(
     surfaceContainerHigh = md_theme_light_surfaceContainerHigh
 )
 
-// 1. Midnight AMOLED
+// =================================================================
+// 3. Midnight AMOLED
+// =================================================================
 private val MidnightAmoledColorScheme = darkColorScheme(
     primary = amoled_primary,
     onPrimary = amoled_onPrimary,
@@ -89,7 +122,9 @@ private val MidnightAmoledColorScheme = darkColorScheme(
     surfaceContainerHigh = amoled_surfaceContainerHigh
 )
 
-// 2. Catppuccin Mocha / Latte
+// =================================================================
+// 4. Catppuccin Mocha & Latte
+// =================================================================
 private val CatppuccinMochaColorScheme = darkColorScheme(
     primary = catppuccin_mocha_primary,
     onPrimary = catppuccin_mocha_onPrimary,
@@ -133,31 +168,35 @@ private val CatppuccinLatteColorScheme = lightColorScheme(
     surfaceContainerHigh = catppuccin_latte_surfaceContainerHigh
 )
 
-// 3. Dracula
-private val DraculaColorScheme = darkColorScheme(
-    primary = dracula_primary,
-    onPrimary = dracula_onPrimary,
-    primaryContainer = dracula_primaryContainer,
-    onPrimaryContainer = dracula_onPrimaryContainer,
-    secondary = dracula_secondary,
-    onSecondary = dracula_onSecondary,
-    secondaryContainer = dracula_secondaryContainer,
-    onSecondaryContainer = dracula_onSecondaryContainer,
-    tertiary = dracula_tertiary,
-    onTertiary = dracula_onTertiary,
-    tertiaryContainer = dracula_tertiaryContainer,
-    onTertiaryContainer = dracula_onTertiaryContainer,
-    background = dracula_background,
-    onBackground = dracula_onBackground,
-    surface = dracula_surface,
-    onSurface = dracula_onSurface,
-    surfaceVariant = dracula_surfaceVariant,
-    onSurfaceVariant = dracula_onSurfaceVariant,
-    outline = dracula_outline,
-    surfaceContainerHigh = dracula_surfaceContainerHigh
+// =================================================================
+// 5. Neon Glow (Cyberpunk)
+// =================================================================
+private val CyberpunkNeonColorScheme = darkColorScheme(
+    primary = cyberpunk_primary,
+    onPrimary = cyberpunk_onPrimary,
+    primaryContainer = cyberpunk_primaryContainer,
+    onPrimaryContainer = cyberpunk_onPrimaryContainer,
+    secondary = cyberpunk_secondary,
+    onSecondary = cyberpunk_onSecondary,
+    secondaryContainer = cyberpunk_secondaryContainer,
+    onSecondaryContainer = cyberpunk_onSecondaryContainer,
+    tertiary = cyberpunk_tertiary,
+    onTertiary = cyberpunk_onTertiary,
+    tertiaryContainer = cyberpunk_tertiaryContainer,
+    onTertiaryContainer = cyberpunk_onTertiaryContainer,
+    background = cyberpunk_background,
+    onBackground = cyberpunk_onBackground,
+    surface = cyberpunk_surface,
+    onSurface = cyberpunk_onSurface,
+    surfaceVariant = cyberpunk_surfaceVariant,
+    onSurfaceVariant = cyberpunk_onSurfaceVariant,
+    outline = cyberpunk_outline,
+    surfaceContainerHigh = cyberpunk_surfaceContainerHigh
 )
 
-// 4. Nord Frost
+// =================================================================
+// 6. Nordic Blue (Nord Frost)
+// =================================================================
 private val NordFrostDarkColorScheme = darkColorScheme(
     primary = nord_frost_primary,
     onPrimary = nord_frost_onPrimary,
@@ -199,7 +238,9 @@ private val NordFrostLightColorScheme = lightColorScheme(
     surfaceContainerHigh = nord_snow_surfaceContainerHigh
 )
 
-// 5. Sakura Blossom
+// =================================================================
+// 7. Sunset Rose (Sakura Blossom)
+// =================================================================
 private val SakuraBlossomDarkColorScheme = darkColorScheme(
     primary = sakura_dark_primary,
     onPrimary = sakura_dark_onPrimary,
@@ -241,130 +282,10 @@ private val SakuraBlossomLightColorScheme = lightColorScheme(
     surfaceContainerHigh = sakura_light_surfaceContainerHigh
 )
 
-// 6. Cyberpunk Neon
-private val CyberpunkNeonColorScheme = darkColorScheme(
-    primary = cyberpunk_primary,
-    onPrimary = cyberpunk_onPrimary,
-    primaryContainer = cyberpunk_primaryContainer,
-    onPrimaryContainer = cyberpunk_onPrimaryContainer,
-    secondary = cyberpunk_secondary,
-    onSecondary = cyberpunk_onSecondary,
-    secondaryContainer = cyberpunk_secondaryContainer,
-    onSecondaryContainer = cyberpunk_onSecondaryContainer,
-    tertiary = cyberpunk_tertiary,
-    onTertiary = cyberpunk_onTertiary,
-    tertiaryContainer = cyberpunk_tertiaryContainer,
-    onTertiaryContainer = cyberpunk_onTertiaryContainer,
-    background = cyberpunk_background,
-    onBackground = cyberpunk_onBackground,
-    surface = cyberpunk_surface,
-    onSurface = cyberpunk_onSurface,
-    surfaceVariant = cyberpunk_surfaceVariant,
-    onSurfaceVariant = cyberpunk_onSurfaceVariant,
-    outline = cyberpunk_outline,
-    surfaceContainerHigh = cyberpunk_surfaceContainerHigh
-)
-
-// 7. Material Clean Light
-private val MaterialCleanLightColorScheme = lightColorScheme(
-    primary = Color(0xFF0061A4),
-    onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFD1E4FF),
-    onPrimaryContainer = Color(0xFF001D36),
-    secondary = Color(0xFF535F70),
-    onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFD7E3F7),
-    onSecondaryContainer = Color(0xFF101C2B),
-    tertiary = Color(0xFF6B5778),
-    onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFF2DAFF),
-    onTertiaryContainer = Color(0xFF251431),
-    background = Color(0xFFFDFBFF),
-    onBackground = Color(0xFF1A1C1E),
-    surface = Color(0xFFFDFBFF),
-    onSurface = Color(0xFF1A1C1E),
-    surfaceVariant = Color(0xFFDFE2EB),
-    onSurfaceVariant = Color(0xFF43474E),
-    outline = Color(0xFF73777F),
-    surfaceContainerHigh = Color(0xFFE8ECF4)
-)
-
-// 8. Pastel Cream Light
-private val PastelCreamColorScheme = lightColorScheme(
-    primary = Color(0xFF8C5000),
-    onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFFFDCC1),
-    onPrimaryContainer = Color(0xFF2E1500),
-    secondary = Color(0xFF715B2E),
-    onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFFDE0A6),
-    onSecondaryContainer = Color(0xFF261900),
-    tertiary = Color(0xFF52643F),
-    onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFD5EABA),
-    onTertiaryContainer = Color(0xFF101F03),
-    background = Color(0xFFFFF8F4),
-    onBackground = Color(0xFF211A14),
-    surface = Color(0xFFFFF8F4),
-    onSurface = Color(0xFF211A14),
-    surfaceVariant = Color(0xFFF3DFD1),
-    onSurfaceVariant = Color(0xFF51443B),
-    outline = Color(0xFF84746A),
-    surfaceContainerHigh = Color(0xFFF7ECE4)
-)
-
-// 9. Glassmorphism Frost Light
-private val GlassFrostLightColorScheme = lightColorScheme(
-    primary = Color(0xFF007A99),
-    onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0x99B3EBFF),
-    onPrimaryContainer = Color(0xFF001F27),
-    secondary = Color(0xFF4B626A),
-    onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0x88CEE7F0),
-    onSecondaryContainer = Color(0xFF061E25),
-    tertiary = Color(0xFF585C7E),
-    onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0x99DFE0FF),
-    onTertiaryContainer = Color(0xFF151937),
-    background = Color(0xFFEBF3F8),
-    onBackground = Color(0xFF191C1D),
-    surface = Color(0x99FFFFFF),
-    onSurface = Color(0xFF191C1D),
-    surfaceVariant = Color(0x73D8E8F0),
-    onSurfaceVariant = Color(0xFF3F484B),
-    outline = Color(0x80FFFFFF),
-    surfaceContainerHigh = Color(0xCCFFFFFF)
-)
-
-// 10. Glassmorphism Aurora Dark
-private val GlassAuroraDarkColorScheme = darkColorScheme(
-    primary = Color(0xFFD0BCFF),
-    onPrimary = Color(0xFF381E72),
-    primaryContainer = Color(0x664F378B),
-    onPrimaryContainer = Color(0xFFEADDFF),
-    secondary = Color(0xFFCCC2DC),
-    onSecondary = Color(0xFF332D41),
-    secondaryContainer = Color(0x554A4458),
-    onSecondaryContainer = Color(0xFFE8DEF8),
-    tertiary = Color(0xFFEFB8C8),
-    onTertiary = Color(0xFF492532),
-    tertiaryContainer = Color(0x66633B48),
-    onTertiaryContainer = Color(0xFFFFD8E4),
-    background = Color(0xFF0C0916),
-    onBackground = Color(0xFFE6E1E5),
-    surface = Color(0x35231B38),
-    onSurface = Color(0xFFE6E1E5),
-    surfaceVariant = Color(0x45342754),
-    onSurfaceVariant = Color(0xFFCAC4D0),
-    outline = Color(0x66FFFFFF),
-    surfaceContainerHigh = Color(0x5436285C)
-)
-
 @Composable
 fun ScreenArcTheme(
-    themePreset: AppThemePreset = AppThemePreset.DYNAMIC_SYSTEM,
-    uiDesignStyle: UiDesignStyle = UiDesignStyle.MATERIAL,
+    themePreset: AppThemePreset = AppThemePreset.GLASSMORPHIC,
+    uiDesignStyle: UiDesignStyle = UiDesignStyle.GLASSMORPHISM,
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
@@ -372,6 +293,7 @@ fun ScreenArcTheme(
     val isGlassmorphic = uiDesignStyle == UiDesignStyle.GLASSMORPHISM || themePreset.isGlass
 
     val baseColorScheme: ColorScheme = when (themePreset) {
+        AppThemePreset.GLASSMORPHIC -> DarkGlassmorphicColorScheme
         AppThemePreset.DYNAMIC_SYSTEM -> {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
@@ -379,54 +301,29 @@ fun ScreenArcTheme(
                 if (darkTheme) DarkColorScheme else LightColorScheme
             }
         }
-        AppThemePreset.LIGHT -> MaterialCleanLightColorScheme
-        AppThemePreset.DARK -> DarkColorScheme
-        AppThemePreset.INDIGO -> darkColorScheme(
-            primary = Color(0xFF3F51B5),
-            onPrimary = Color.White,
-            primaryContainer = Color(0xFF1A237E),
-            onPrimaryContainer = Color(0xFFC5CAE9),
-            secondary = Color(0xFF5C6BC0),
-            surface = Color(0xFF1A1C2E),
-            background = Color(0xFF121422)
-        )
-        AppThemePreset.TEAL -> darkColorScheme(
-            primary = Color(0xFF00796B),
-            onPrimary = Color.White,
-            primaryContainer = Color(0xFF004D40),
-            onPrimaryContainer = Color(0xFFB2DFDB),
-            secondary = Color(0xFF26A69A),
-            surface = Color(0xFF121E1C),
-            background = Color(0xFF0D1615)
-        )
-        AppThemePreset.MONOCHROME -> darkColorScheme(
-            primary = Color(0xFFE0E0E0),
-            onPrimary = Color.Black,
-            primaryContainer = Color(0xFF424242),
-            onPrimaryContainer = Color.White,
-            secondary = Color(0xFF9E9E9E),
-            surface = Color(0xFF1E1E1E),
-            background = Color(0xFF121212)
-        )
+        AppThemePreset.MIDNIGHT_AMOLED -> MidnightAmoledColorScheme
+        AppThemePreset.CATPPUCCIN -> if (darkTheme) CatppuccinMochaColorScheme else CatppuccinLatteColorScheme
+        AppThemePreset.NEON_GLOW -> CyberpunkNeonColorScheme
+        AppThemePreset.NORDIC_BLUE -> if (darkTheme) NordFrostDarkColorScheme else NordFrostLightColorScheme
+        AppThemePreset.SUNSET_ROSE -> if (darkTheme) SakuraBlossomDarkColorScheme else SakuraBlossomLightColorScheme
     }
 
-    // When glassmorphism is active, ensure surface & container layers are translucent with specular highlights
-    // and explicitly enforce high-contrast typography tokens across Dark and Light modes.
+    // When glassmorphism is active, ensure surface & container layers are translucent with specular rim highlights
     val effectiveColorScheme = if (isGlassmorphic) {
         val isEffectiveDark = darkTheme || themePreset.isDarkOnly
         if (isEffectiveDark) {
             baseColorScheme.copy(
-                background = Color(0xFF0C0916),
-                onBackground = Color(0xFFF2EFF8),
-                surface = Color(0x35231B38),
-                onSurface = Color(0xFFF2EFF8),
-                surfaceVariant = Color(0x45342754),
-                onSurfaceVariant = Color(0xFFDDD7E8),
-                surfaceContainer = Color(0x42281E46),
-                surfaceContainerHigh = Color(0x5436285C),
-                surfaceContainerHighest = Color(0x66443372),
-                outline = Color(0x66FFFFFF),
-                outlineVariant = Color(0x33FFFFFF)
+                background = DarkGlassBackground,
+                onBackground = DarkGlassOnSurface,
+                surface = Color(0x351F1B38),
+                onSurface = DarkGlassOnSurface,
+                surfaceVariant = Color(0x452E2754),
+                onSurfaceVariant = DarkGlassOnSurfaceVariant,
+                surfaceContainer = Color(0x4018152B),
+                surfaceContainerHigh = Color(0x55282247),
+                surfaceContainerHighest = Color(0x66393064),
+                outline = Color(0x44FFFFFF),
+                outlineVariant = Color(0x22FFFFFF)
             )
         } else {
             baseColorScheme.copy(
@@ -449,14 +346,29 @@ fun ScreenArcTheme(
 
     val animatedColorScheme = animateColorScheme(effectiveColorScheme)
 
+    val customColors = ScreenArcCustomColors(
+        primaryGlow = animatedColorScheme.primary.copy(alpha = 0.5f),
+        secondaryGlow = animatedColorScheme.secondary.copy(alpha = 0.4f),
+        tertiaryGlow = animatedColorScheme.tertiary.copy(alpha = 0.4f),
+        arcGradient = listOf(animatedColorScheme.secondary, animatedColorScheme.primary, animatedColorScheme.tertiary),
+        glassSurface = if (darkTheme || themePreset.isDarkOnly) GlassFrostDark else Color(0xB3FFFFFF),
+        glassSurfaceElevated = if (darkTheme || themePreset.isDarkOnly) GlassFrostDarkElevated else Color(0xCCFFFFFF),
+        glassRimTop = if (darkTheme || themePreset.isDarkOnly) GlassRimTop else Color(0x99FFFFFF),
+        glassRimBottom = if (darkTheme || themePreset.isDarkOnly) GlassRimBottom else Color(0x33000000),
+        shimmerBase = if (darkTheme || themePreset.isDarkOnly) ShimmerBaseDark else ShimmerBaseLight,
+        shimmerHighlight = if (darkTheme || themePreset.isDarkOnly) ShimmerHighlightDark else ShimmerHighlightLight
+    )
+
     CompositionLocalProvider(
         LocalIsGlassmorphic provides isGlassmorphic,
         LocalUiDesignStyle provides uiDesignStyle,
+        LocalScreenArcCustomColors provides customColors,
         androidx.compose.material3.LocalContentColor provides animatedColorScheme.onSurface
     ) {
         MaterialTheme(
             colorScheme = animatedColorScheme,
             typography = Typography,
+            shapes = Shapes,
             content = content
         )
     }
@@ -473,6 +385,10 @@ private fun animateColorScheme(target: ColorScheme): ColorScheme {
     val onSecondary by animateColorAsState(target.onSecondary, spec, label = "onSecondary")
     val secondaryContainer by animateColorAsState(target.secondaryContainer, spec, label = "secondaryContainer")
     val onSecondaryContainer by animateColorAsState(target.onSecondaryContainer, spec, label = "onSecondaryContainer")
+    val tertiary by animateColorAsState(target.tertiary, spec, label = "tertiary")
+    val onTertiary by animateColorAsState(target.onTertiary, spec, label = "onTertiary")
+    val tertiaryContainer by animateColorAsState(target.tertiaryContainer, spec, label = "tertiaryContainer")
+    val onTertiaryContainer by animateColorAsState(target.onTertiaryContainer, spec, label = "onTertiaryContainer")
     val background by animateColorAsState(target.background, spec, label = "background")
     val onBackground by animateColorAsState(target.onBackground, spec, label = "onBackground")
     val surface by animateColorAsState(target.surface, spec, label = "surface")
@@ -493,6 +409,10 @@ private fun animateColorScheme(target: ColorScheme): ColorScheme {
         onSecondary = onSecondary,
         secondaryContainer = secondaryContainer,
         onSecondaryContainer = onSecondaryContainer,
+        tertiary = tertiary,
+        onTertiary = onTertiary,
+        tertiaryContainer = tertiaryContainer,
+        onTertiaryContainer = onTertiaryContainer,
         background = background,
         onBackground = onBackground,
         surface = surface,

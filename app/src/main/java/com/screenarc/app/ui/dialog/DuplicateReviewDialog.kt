@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.screenarc.app.ui.theme.LocalIsGlassmorphic
 import coil.compose.AsyncImage
 import com.screenarc.app.model.ScreenshotUiModel
 import com.screenarc.app.util.DuplicateGroup
@@ -109,15 +110,17 @@ fun DuplicateReviewDialog(
             dismissOnClickOutside = true
         )
     ) {
+        val isGlass = LocalIsGlassmorphic.current
         Surface(
             modifier = modifier
                 .fillMaxWidth(0.96f)
+                .widthIn(max = 760.dp)
                 .fillMaxHeight(0.90f)
                 .clip(RoundedCornerShape(28.dp)),
             shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            color = if (isGlass) Color(0xF212101C) else MaterialTheme.colorScheme.surfaceContainerHigh,
             shadowElevation = 16.dp,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            border = BorderStroke(1.dp, if (isGlass) Color.White.copy(alpha = 0.22f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
         ) {
             Column(
                 modifier = Modifier

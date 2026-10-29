@@ -16,7 +16,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 data class EditorUiState(
-    val activeTool: EditTool = EditTool.FREEHAND_BRUSH,
+    val activeTool: EditTool = EditTool.SELECT_MOVE,
     val strokeSize: Float = 24f,
     val strokeColor: Int = Color.RED,
     val strokeAlpha: Float = 1.0f,
@@ -27,6 +27,7 @@ data class EditorUiState(
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val opsCount: Int = 0,
+    val selectedOpId: String? = null,
     val isPreviewLoading: Boolean = true,
     val isExporting: Boolean = false,
     val exportProgressText: String? = null,
@@ -262,12 +263,57 @@ class EditorViewModel(
         return false
     }
 
+    fun selectOp(id: String?) {
+        _uiState.value = _uiState.value.copy(selectedOpId = id)
+    }
+
+    /**
+     * Updates an existing EditOp (for layer translation/repositioning).
+     */
+    fun updateOp(updatedOp: EditOp) {
+        val index = undoStack.indexOfFirst { it.id == updatedOp.id }
+        if (index != -1) {
+            undoStack[index] = updatedOp
+            syncOpStacks()
+        }
+    }
+
+    /**
+     * Deletes the currently selected layer.
+     */
+    fun deleteSelectedOp() {
+        val selectedId = _uiState.value.selectedOpId ?: return
+        val index = undoStack.indexOfFirst { it.id == selectedId }
+        if (index != -1) {
+            undoStack.removeAt(index)
+            redoStack.clear()
+            _uiState.value = _uiState.value.copy(selectedOpId = null)
+            syncOpStacks()
+        }
+    }
+
+    /**
+     * Hit-tests all committed ops to find the topmost layer at the given coordinates.
+     */
+    fun findOpAt(imageX: Float, imageY: Float, tolerancePx: Float = 32f): EditOp? {
+        for (i in undoStack.indices.reversed()) {
+            val op = undoStack[i]
+            if (op.containsPoint(imageX, imageY, tolerancePx)) {
+                return op
+            }
+        }
+        return null
+    }
+
     private fun syncOpStacks() {
         _committedOps.value = undoStack.toList()
+        val currentSelectedId = _uiState.value.selectedOpId
+        val stillExists = currentSelectedId != null && undoStack.any { it.id == currentSelectedId }
         _uiState.value = _uiState.value.copy(
             canUndo = undoStack.isNotEmpty(),
             canRedo = redoStack.isNotEmpty(),
-            opsCount = undoStack.size
+            opsCount = undoStack.size,
+            selectedOpId = if (stillExists) currentSelectedId else null
         )
     }
 
@@ -302,6 +348,24 @@ class EditorViewModel(
             backgroundColor = if (_uiState.value.isShapeFilled) Color.argb(180, 0, 0, 0) else null
         )
         commitOp(textOp)
+        // Automatically select the newly created text layer and switch to Select/Move mode so user can drag to position it
+        selectOp(textOp.id)
+        selectTool(EditTool.SELECT_MOVE)
+    }
+
+    /**
+     * Updates an existing text annotation's text content.
+     */
+    fun updateTextAnnotation(id: String, newText: String) {
+        if (newText.isBlank()) return
+        val index = undoStack.indexOfFirst { it.id == id }
+        if (index != -1) {
+            val op = undoStack[index]
+            if (op is EditOp.TextOp) {
+                undoStack[index] = op.copy(text = newText)
+                syncOpStacks()
+            }
+        }
     }
 
     // ─── Export & Share ───────────────────────────────────────────────────────

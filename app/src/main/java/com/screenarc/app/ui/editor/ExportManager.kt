@@ -264,6 +264,27 @@ class ExportManager(private val context: Context) {
                 resolver.update(outputUri, completeValues, null, null)
             }
 
+            // Record newly saved screenshot in local database
+            try {
+                val app = context.applicationContext as? com.screenarc.app.ScreenArcApplication
+                app?.appContainer?.database?.let { db ->
+                    val newId = try { android.content.ContentUris.parseId(outputUri) } catch (_: Exception) { timestamp }
+                    db.screenshotDao().insertOrUpdate(
+                        com.screenarc.app.data.local.db.entity.ScreenshotEntity(
+                            id = newId,
+                            uri = outputUri.toString(),
+                            displayName = fileName,
+                            dateAdded = timestamp / 1000,
+                            size = 0L,
+                            relativePath = "Pictures/Screenshots/",
+                            mimeType = format.mimeType
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not register saved screenshot in database: ${e.message}")
+            }
+
             Log.d(TAG, "Successfully exported redacted image to $outputUri")
             Result.success(outputUri)
         } catch (e: Exception) {
@@ -370,10 +391,12 @@ class ExportManager(private val context: Context) {
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = context.contentResolver.getType(uri) ?: "image/png"
             putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = android.content.ClipData.newUri(context.contentResolver, "Screenshot", uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        context.startActivity(Intent.createChooser(shareIntent, title).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        })
+        val chooser = Intent.createChooser(shareIntent, title).apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(chooser)
     }
 }

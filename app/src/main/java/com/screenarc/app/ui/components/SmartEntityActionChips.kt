@@ -29,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import com.screenarc.app.ui.theme.LocalIsGlassmorphic
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -190,13 +191,15 @@ fun SmartEntityChip(
         SmartEntityType.OTP -> MaterialTheme.colorScheme.onErrorContainer
     }
 
+    val isGlass = LocalIsGlassmorphic.current
+
     Surface(
         shape = RoundedCornerShape(16.dp),
-        color = chipColor.copy(alpha = 0.95f),
-        shadowElevation = 4.dp,
+        color = if (isGlass) chipColor.copy(alpha = 0.28f) else chipColor.copy(alpha = 0.95f),
+        shadowElevation = if (isGlass) 2.dp else 4.dp,
         border = BorderStroke(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+            color = if (isGlass) contentColor.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
         ),
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))

@@ -20,6 +20,8 @@ enum class OverlayEdgeAnchor {
     BOTTOM_LEFT,
     TOP_RIGHT,
     TOP_LEFT,
+    CENTER_RIGHT,
+    CENTER_LEFT,
     CENTER
 }
 
@@ -82,7 +84,7 @@ object RadialMenuGeometry {
         val isLeftHanded = when (handedness) {
             Handedness.LEFT_HANDED -> true
             Handedness.RIGHT_HANDED -> false
-            Handedness.AUTO -> isRtl || edgeAnchor == OverlayEdgeAnchor.BOTTOM_LEFT || edgeAnchor == OverlayEdgeAnchor.TOP_LEFT
+            Handedness.AUTO -> isRtl || edgeAnchor == OverlayEdgeAnchor.BOTTOM_LEFT || edgeAnchor == OverlayEdgeAnchor.TOP_LEFT || edgeAnchor == OverlayEdgeAnchor.CENTER_LEFT
         }
 
         val total = categories.size
@@ -335,9 +337,125 @@ object RadialMenuGeometry {
                 )
             }
 
+            OverlayEdgeAnchor.CENTER_RIGHT -> {
+                // Anchored to right screen edge at vertical center: bloom westward (into left hemisphere)
+                val innerRadius = radiusPx * 0.62f
+                val copyAngle = 235f * (PI.toFloat() / 180f)
+                val shareAngle = 198f * (PI.toFloat() / 180f)
+                val shareAndDelAngle = 162f * (PI.toFloat() / 180f)
+                val deleteAngle = 125f * (PI.toFloat() / 180f)
+
+                val copyPos = Offset(innerRadius * cos(copyAngle), innerRadius * sin(copyAngle))
+                val sharePos = Offset(innerRadius * cos(shareAngle), innerRadius * sin(shareAngle))
+                val shareAndDeletePos = Offset(innerRadius * cos(shareAndDelAngle), innerRadius * sin(shareAndDelAngle))
+                val deletePos = Offset(innerRadius * cos(deleteAngle), innerRadius * sin(deleteAngle))
+
+                val outerRadius = radiusPx * 1.35f
+                val (startDeg, endDeg) = Pair(245f, 115f)
+                val count = displayedCategories.size + (if (hasOverflow && !isOverflowExpanded) 1 else 0)
+
+                if (count == 1) {
+                    val angle = 180f * (PI.toFloat() / 180f)
+                    catPositions.add(displayedCategories[0] to Offset(outerRadius * cos(angle), outerRadius * sin(angle)))
+                } else if (count > 1) {
+                    val startAngle = startDeg * (PI.toFloat() / 180f)
+                    val endAngle = endDeg * (PI.toFloat() / 180f)
+                    val step = (endAngle - startAngle) / (count - 1)
+
+                    displayedCategories.forEachIndexed { i, cat ->
+                        val isOuter = isOverflowExpanded && i >= 5
+                        val effectiveRadius = if (isOuter) outerRadius * 1.30f else outerRadius
+                        val a = if (isOuter) {
+                            val outerStep = (endAngle - startAngle) / (total - 5).coerceAtLeast(1)
+                            startAngle + (i - 5) * outerStep
+                        } else {
+                            startAngle + i * step
+                        }
+                        catPositions.add(cat to Offset(effectiveRadius * cos(a), effectiveRadius * sin(a)))
+                    }
+
+                    if (hasOverflow && !isOverflowExpanded) {
+                        val moreAngle = 115f * (PI.toFloat() / 180f)
+                        morePos = Offset(outerRadius * cos(moreAngle), outerRadius * sin(moreAngle))
+                    }
+                }
+
+                return RadialTargetLayout(
+                    categoriesWithPos = catPositions,
+                    deletePos = deletePos,
+                    sharePos = sharePos,
+                    shareAndDeletePos = shareAndDeletePos,
+                    copyPos = copyPos,
+                    morePos = morePos,
+                    isDualRing = isOverflowExpanded && total > 6,
+                    suggestedCategoryId = suggestedCategoryId,
+                    overflowCategories = overflowList,
+                    innerRadiusPx = innerRadius,
+                    outerRadiusPx = outerRadius
+                )
+            }
+
+            OverlayEdgeAnchor.CENTER_LEFT -> {
+                // Anchored to left screen edge at vertical center: bloom eastward (into right hemisphere)
+                val innerRadius = radiusPx * 0.62f
+                val copyAngle = -55f * (PI.toFloat() / 180f)
+                val shareAngle = -18f * (PI.toFloat() / 180f)
+                val shareAndDelAngle = 18f * (PI.toFloat() / 180f)
+                val deleteAngle = 55f * (PI.toFloat() / 180f)
+
+                val copyPos = Offset(innerRadius * cos(copyAngle), innerRadius * sin(copyAngle))
+                val sharePos = Offset(innerRadius * cos(shareAngle), innerRadius * sin(shareAngle))
+                val shareAndDeletePos = Offset(innerRadius * cos(shareAndDelAngle), innerRadius * sin(shareAndDelAngle))
+                val deletePos = Offset(innerRadius * cos(deleteAngle), innerRadius * sin(deleteAngle))
+
+                val outerRadius = radiusPx * 1.35f
+                val (startDeg, endDeg) = Pair(-65f, 65f)
+                val count = displayedCategories.size + (if (hasOverflow && !isOverflowExpanded) 1 else 0)
+
+                if (count == 1) {
+                    val angle = 0f
+                    catPositions.add(displayedCategories[0] to Offset(outerRadius * cos(angle), outerRadius * sin(angle)))
+                } else if (count > 1) {
+                    val startAngle = startDeg * (PI.toFloat() / 180f)
+                    val endAngle = endDeg * (PI.toFloat() / 180f)
+                    val step = (endAngle - startAngle) / (count - 1)
+
+                    displayedCategories.forEachIndexed { i, cat ->
+                        val isOuter = isOverflowExpanded && i >= 5
+                        val effectiveRadius = if (isOuter) outerRadius * 1.30f else outerRadius
+                        val a = if (isOuter) {
+                            val outerStep = (endAngle - startAngle) / (total - 5).coerceAtLeast(1)
+                            startAngle + (i - 5) * outerStep
+                        } else {
+                            startAngle + i * step
+                        }
+                        catPositions.add(cat to Offset(effectiveRadius * cos(a), effectiveRadius * sin(a)))
+                    }
+
+                    if (hasOverflow && !isOverflowExpanded) {
+                        val moreAngle = 65f * (PI.toFloat() / 180f)
+                        morePos = Offset(outerRadius * cos(moreAngle), outerRadius * sin(moreAngle))
+                    }
+                }
+
+                return RadialTargetLayout(
+                    categoriesWithPos = catPositions,
+                    deletePos = deletePos,
+                    sharePos = sharePos,
+                    shareAndDeletePos = shareAndDeletePos,
+                    copyPos = copyPos,
+                    morePos = morePos,
+                    isDualRing = isOverflowExpanded && total > 6,
+                    suggestedCategoryId = suggestedCategoryId,
+                    overflowCategories = overflowList,
+                    innerRadiusPx = innerRadius,
+                    outerRadiusPx = outerRadius
+                )
+            }
+
             OverlayEdgeAnchor.CENTER, OverlayEdgeAnchor.AUTO -> {
                 when (style) {
-                    ArcDesignStyle.ORBIT -> {
+                    ArcDesignStyle.ORBIT, ArcDesignStyle.MINIMAL, ArcDesignStyle.PALETTE, ArcDesignStyle.BLOOM -> {
                         // Orbit mode: Distributes nodes along upper and side quadrant.
                         // Left handed fans rightward (-15° to -165° inverted), Right handed fans leftward.
                         val (startDeg, endDeg) = if (isLeftHanded) {
@@ -585,6 +703,25 @@ object RadialMenuGeometry {
         if (distance < 50f) return true
 
         return true
+    }
+
+    /**
+     * Determines the closest screen placement anchor given a finger position offset from the screen center.
+     * Supports all 6 placement positions (Top, Middle, Bottom for Left and Right edges).
+     */
+    fun findNearestAnchor(offsetFromCenter: Offset, verticalMiddleThresholdPx: Float = 250f): OverlayEdgeAnchor {
+        val isRight = offsetFromCenter.x >= 0
+        return when {
+            kotlin.math.abs(offsetFromCenter.y) < verticalMiddleThresholdPx -> {
+                if (isRight) OverlayEdgeAnchor.CENTER_RIGHT else OverlayEdgeAnchor.CENTER_LEFT
+            }
+            offsetFromCenter.y >= 0 -> {
+                if (isRight) OverlayEdgeAnchor.BOTTOM_RIGHT else OverlayEdgeAnchor.BOTTOM_LEFT
+            }
+            else -> {
+                if (isRight) OverlayEdgeAnchor.TOP_RIGHT else OverlayEdgeAnchor.TOP_LEFT
+            }
+        }
     }
 
     /**

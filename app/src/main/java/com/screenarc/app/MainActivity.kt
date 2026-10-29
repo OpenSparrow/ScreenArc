@@ -62,6 +62,7 @@ import com.screenarc.app.ui.screens.HistoryScreen
 import com.screenarc.app.ui.screens.HomeScreen
 import com.screenarc.app.ui.screens.ScreenshotsScreen
 import com.screenarc.app.ui.screens.SettingsScreen
+import com.screenarc.app.ui.screens.onboarding.OnboardingScreen
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -136,7 +137,15 @@ class MainActivity : ComponentActivity() {
                 themePreset = settings.themePreset,
                 uiDesignStyle = settings.uiDesignStyle
             ) {
-                val isGlass = LocalIsGlassmorphic.current
+                if (!settings.isOnboardingCompleted) {
+                    OnboardingScreen(
+                        onFinish = {
+                            settingsRepository.setOnboardingCompleted(true)
+                            checkAndStartOverlayServiceIfEnabled()
+                        }
+                    )
+                } else {
+                    val isGlass = LocalIsGlassmorphic.current
                 val isDark = isSystemInDarkTheme() || settings.themePreset.isDarkOnly
                 var selectedTab by remember { selectedTabState }
 
@@ -240,6 +249,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+                }
                 }
             }
         }
