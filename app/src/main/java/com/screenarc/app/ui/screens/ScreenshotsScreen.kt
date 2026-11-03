@@ -57,6 +57,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -596,6 +597,40 @@ fun ScreenshotsScreen(
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("PDF", fontSize = 12.sp)
                             }
+                        }
+
+                        // Export Expenses CSV (PRO Feature)
+                        OutlinedButton(
+                            onClick = {
+                                val selectedItems = results.filter { uiState.selectedUris.contains(it.uri) }
+                                val extractedExpenses = selectedItems.mapNotNull { item ->
+                                    val text = item.recognizedText ?: return@mapNotNull null
+                                    com.screenarc.app.util.ReceiptExpenseExtractor.extractExpense(
+                                        rawText = text,
+                                        screenshotId = item.id,
+                                        screenshotUri = item.uri,
+                                        fileName = item.displayName
+                                    )
+                                }
+                                if (extractedExpenses.isNotEmpty()) {
+                                    scope.launch {
+                                        val csv = com.screenarc.app.util.ReceiptExpenseExtractor.exportToCsv(extractedExpenses)
+                                        val uri = com.screenarc.app.util.ReceiptExpenseExtractor.saveCsvToDownloads(context, csv)
+                                        if (uri != null) {
+                                            android.widget.Toast.makeText(context, "Exported " + extractedExpenses.size + " expense(s) to CSV", android.widget.Toast.LENGTH_SHORT).show()
+                                            com.screenarc.app.util.ReceiptExpenseExtractor.shareCsv(context, uri)
+                                        }
+                                    }
+                                } else {
+                                    android.widget.Toast.makeText(context, "No receipts detected in selected screenshots", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            shape = RoundedCornerShape(14.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.TableChart, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("CSV", fontSize = 12.sp)
                         }
 
                         // Bulk Copy Button

@@ -14,6 +14,7 @@ import com.screenarc.app.model.ScreenshotSearchQuery
 import com.screenarc.app.model.ScreenshotUiModel
 import com.screenarc.app.service.OverlayEventBus
 import com.screenarc.app.storage.MediaStoreOrganizer
+import com.screenarc.app.util.DuplicateDetector
 import androidx.room.withTransaction
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -358,10 +359,26 @@ class ScreenshotRepository(
             context.contentResolver.delete(screenshot.contentUri, null, null)
             screenshotDao.deleteScreenshotByUri(screenshot.uri)
             database.ocrDao().deleteOcrForUri(screenshot.uri)
+            DuplicateDetector.invalidateHash(screenshot.uri)
             OverlayEventBus.postEvent(OverlayEvent.RefreshRequested)
             Result.success(true)
         } catch (e: Exception) {
             Log.e(TAG, "Error deleting screenshot: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteScreenshotByUri(uriString: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val uri = Uri.parse(uriString)
+            context.contentResolver.delete(uri, null, null)
+            screenshotDao.deleteScreenshotByUri(uriString)
+            database.ocrDao().deleteOcrForUri(uriString)
+            DuplicateDetector.invalidateHash(uriString)
+            OverlayEventBus.postEvent(OverlayEvent.RefreshRequested)
+            Result.success(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error deleting screenshot by URI $uriString: ${e.message}", e)
             Result.failure(e)
         }
     }

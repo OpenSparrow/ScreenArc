@@ -113,13 +113,17 @@ object PdfExporter {
                 }
                 uri
             } else {
-                val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                if (!dir.exists()) dir.mkdirs()
-                val file = File(dir, fileName)
-                FileOutputStream(file).use { out ->
-                    pdfDocument.writeTo(out)
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
                 }
-                Uri.fromFile(file)
+                val uri = resolver.insert(MediaStore.Files.getContentUri("external"), values)
+                if (uri != null) {
+                    resolver.openOutputStream(uri)?.use { out ->
+                        pdfDocument.writeTo(out)
+                    }
+                }
+                uri
             }
 
             pdfDocument.close()
@@ -138,6 +142,11 @@ object PdfExporter {
             putExtra(Intent.EXTRA_STREAM, pdfUri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(Intent.createChooser(shareIntent, "Share Exported PDF"))
+        val chooser = Intent.createChooser(shareIntent, "Share Exported PDF").apply {
+            if (context !is android.app.Activity) {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        }
+        context.startActivity(chooser)
     }
 }

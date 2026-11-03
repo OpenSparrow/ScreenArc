@@ -93,6 +93,13 @@ object ConfigurationBackupManager {
                 put("themePreset", settings.themePreset.id)
                 put("uiDesignStyle", settings.uiDesignStyle.name)
                 put("ocrLanguage", settings.ocrLanguage.id)
+                put("autoOcrEnabled", settings.autoOcrEnabled)
+                put("autoAssignRulesEnabled", settings.autoAssignRulesEnabled)
+                put("autoArchiveDays", settings.autoArchiveDays)
+                put("duplicateFinderEnabled", settings.duplicateFinderEnabled)
+                put("overlayPlacement", settings.overlayPlacement.id)
+                put("playSoundOnDrop", settings.playSoundOnDrop)
+                put("arcDesignStyle", settings.arcDesignStyle.name)
             }
             put("settings", settingsObj)
         }
@@ -217,7 +224,12 @@ object ConfigurationBackupManager {
             putExtra(Intent.EXTRA_SUBJECT, "ScreenArc_Configuration_Backup.json")
             putExtra(Intent.EXTRA_TEXT, jsonString)
         }
-        context.startActivity(Intent.createChooser(intent, "Export ScreenArc Backup"))
+        val chooser = Intent.createChooser(intent, "Export ScreenArc Backup").apply {
+            if (context !is android.app.Activity) {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        }
+        context.startActivity(chooser)
     }
 
     /**

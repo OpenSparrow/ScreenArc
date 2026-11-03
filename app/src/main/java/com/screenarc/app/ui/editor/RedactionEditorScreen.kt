@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ClearAll
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -243,6 +244,66 @@ fun RedactionEditorScreen(
                             contentDescription = "Clear All",
                             tint = if (uiState.opsCount > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                         )
+                    }
+
+                    // Shield: Auto-Redact Sensitive Data (PRO Feature)
+                    var isScanningShield by remember { mutableStateOf(false) }
+                    IconButton(
+                        onClick = {
+                            if (!isScanningShield) {
+                                isScanningShield = true
+                                scope.launch {
+                                    val repo = ocrRepository ?: (context.applicationContext as? ScreenArcApplication)?.appContainer?.ocrRepository
+                                    val blocks = if (screenshot?.blocks?.isNotEmpty() == true) {
+                                        screenshot.blocks
+                                    } else if (repo != null) {
+                                        val res = repo.recognizeText(uri, language ?: com.screenarc.app.ocr.OcrLanguage.LATIN)
+                                        res.blocks
+                                    } else {
+                                        emptyList()
+                                    }
+
+                                    val sensitiveItems = com.screenarc.app.util.SensitiveDataShield.scanBlocks(blocks)
+                                    if (sensitiveItems.isNotEmpty()) {
+                                        val dims = com.screenarc.app.ocr.OcrCoordinateTransformer.getImageDimensions(context, uri)
+                                        val origW = dims?.first ?: (blocks.maxOfOrNull { it.right ?: 1080 } ?: 1080)
+                                        val origH = dims?.second ?: (blocks.maxOfOrNull { it.bottom ?: 1920 } ?: 1920)
+
+                                        val scaleX = uiState.previewWidth.toFloat() / origW.toFloat()
+                                        val scaleY = uiState.previewHeight.toFloat() / origH.toFloat()
+
+                                        sensitiveItems.forEach { (block, _) ->
+                                            val bL = (block.left ?: 0) * scaleX
+                                            val bT = (block.top ?: 0) * scaleY
+                                            val bR = (block.right ?: 0) * scaleX
+                                            val bB = (block.bottom ?: 0) * scaleY
+                                            val box = EditOp.SolidRedactBox(
+                                                left = bL,
+                                                top = bT,
+                                                right = bR,
+                                                bottom = bB
+                                            )
+                                            editorViewModel.commitOp(box)
+                                        }
+                                        Toast.makeText(context, "Auto-redacted ${sensitiveItems.size} sensitive item(s)", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "No sensitive PII detected in screenshot", Toast.LENGTH_SHORT).show()
+                                    }
+                                    isScanningShield = false
+                                }
+                            }
+                        },
+                        enabled = !uiState.isPreviewLoading && !isScanningShield
+                    ) {
+                        if (isScanningShield) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Security,
+                                contentDescription = "Auto-Redact Sensitive Data",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
 
                     if (isShareAndDeleteMode) {

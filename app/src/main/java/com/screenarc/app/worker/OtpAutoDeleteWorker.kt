@@ -24,10 +24,14 @@ class OtpAutoDeleteWorker(
             val app = applicationContext as? ScreenArcApplication
             val repo = app?.appContainer?.screenshotRepository ?: ScreenshotRepository(applicationContext)
 
-            val uri = Uri.parse(uriString)
-            val rows = applicationContext.contentResolver.delete(uri, null, null)
-            Log.d(TAG, "Deleted OTP screenshot $uriString: $rows rows removed")
-            Result.success()
+            val deleteResult = repo.deleteScreenshotByUri(uriString)
+            if (deleteResult.isSuccess) {
+                Log.d(TAG, "Deleted OTP screenshot $uriString from storage and database")
+                Result.success()
+            } else {
+                Log.w(TAG, "Failed deleting OTP screenshot $uriString")
+                Result.failure()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error auto-deleting OTP screenshot $uriString: ${e.message}", e)
             Result.failure()

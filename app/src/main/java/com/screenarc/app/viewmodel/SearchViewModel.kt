@@ -263,23 +263,54 @@ class SearchViewModel @JvmOverloads constructor(
             if (settingsRepo != null && result.settingsMap.isNotEmpty()) {
                 settingsRepo.updateSettings { current ->
                     var updated = current
-                    val themeId = result.settingsMap["themePreset"] as? String
-                    if (themeId != null) {
-                        updated = updated.copy(themePreset = com.screenarc.app.model.AppThemePreset.fromId(themeId))
+                    (result.settingsMap["themePreset"] as? String)?.let {
+                        updated = updated.copy(themePreset = com.screenarc.app.model.AppThemePreset.fromId(it))
                     }
-                    val styleId = result.settingsMap["uiDesignStyle"] as? String
-                    if (styleId != null) {
+                    (result.settingsMap["uiDesignStyle"] as? String)?.let {
                         try {
-                            updated = updated.copy(uiDesignStyle = com.screenarc.app.data.UiDesignStyle.valueOf(styleId))
-                        } catch (e: Exception) {}
+                            updated = updated.copy(uiDesignStyle = com.screenarc.app.data.UiDesignStyle.valueOf(it))
+                        } catch (_: Exception) {}
                     }
-                    val bubbleSize = (result.settingsMap["bubbleSizeDp"] as? Number)?.toInt()
-                    if (bubbleSize != null) {
-                        updated = updated.copy(bubbleSizeDp = bubbleSize)
+                    (result.settingsMap["ocrLanguage"] as? String)?.let {
+                        updated = updated.copy(ocrLanguage = com.screenarc.app.ocr.OcrLanguage.fromId(it))
                     }
-                    val arcRadius = (result.settingsMap["arcRadiusDp"] as? Number)?.toInt()
-                    if (arcRadius != null) {
-                        updated = updated.copy(arcRadiusDp = arcRadius)
+                    (result.settingsMap["arcDesignStyle"] as? String)?.let {
+                        try {
+                            updated = updated.copy(arcDesignStyle = com.screenarc.app.model.ArcDesignStyle.valueOf(it))
+                        } catch (_: Exception) {}
+                    }
+                    (result.settingsMap["overlayPlacement"] as? String)?.let {
+                        updated = updated.copy(overlayPlacement = com.screenarc.app.data.OverlayPlacement.fromId(it))
+                    }
+                    (result.settingsMap["bubbleSizeDp"] as? Number)?.let {
+                        updated = updated.copy(bubbleSizeDp = it.toInt())
+                    }
+                    (result.settingsMap["arcRadiusDp"] as? Number)?.let {
+                        updated = updated.copy(arcRadiusDp = it.toInt())
+                    }
+                    (result.settingsMap["autoDismissSeconds"] as? Number)?.let {
+                        updated = updated.copy(autoDismissSeconds = it.toInt())
+                    }
+                    (result.settingsMap["autoArchiveDays"] as? Number)?.let {
+                        updated = updated.copy(autoArchiveDays = it.toInt())
+                    }
+                    (result.settingsMap["hapticFeedbackEnabled"] as? Boolean)?.let {
+                        updated = updated.copy(hapticFeedbackEnabled = it)
+                    }
+                    (result.settingsMap["dynamicPaletteEnabled"] as? Boolean)?.let {
+                        updated = updated.copy(dynamicPaletteEnabled = it)
+                    }
+                    (result.settingsMap["autoOcrEnabled"] as? Boolean)?.let {
+                        updated = updated.copy(autoOcrEnabled = it)
+                    }
+                    (result.settingsMap["autoAssignRulesEnabled"] as? Boolean)?.let {
+                        updated = updated.copy(autoAssignRulesEnabled = it)
+                    }
+                    (result.settingsMap["duplicateFinderEnabled"] as? Boolean)?.let {
+                        updated = updated.copy(duplicateFinderEnabled = it)
+                    }
+                    (result.settingsMap["playSoundOnDrop"] as? Boolean)?.let {
+                        updated = updated.copy(playSoundOnDrop = it)
                     }
                     updated
                 }

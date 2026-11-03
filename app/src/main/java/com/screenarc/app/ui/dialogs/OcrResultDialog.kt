@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -111,6 +112,16 @@ fun OcrResultDialog(
         com.screenarc.app.util.SmartEntityExtractor.hasOtp(rawText)
     }
     var autoDeleteOtpEnabled by remember { mutableStateOf(false) }
+    val detectedExpense = remember(rawText) {
+        if (hasText) {
+            com.screenarc.app.util.ReceiptExpenseExtractor.extractExpense(
+                rawText = rawText,
+                screenshotId = screenshot.id,
+                screenshotUri = screenshot.uri,
+                fileName = screenshot.displayName
+            )
+        } else null
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -319,6 +330,72 @@ fun OcrResultDialog(
                         entities = smartEntities,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
+                // Detected Expense Banner (PRO)
+                detectedExpense?.let { exp ->
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFF4CAF50).copy(alpha = 0.15f),
+                        border = BorderStroke(1.dp, Color(0xFF4CAF50).copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFF4CAF50).copy(alpha = 0.25f),
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.ReceiptLong,
+                                            contentDescription = null,
+                                            tint = Color(0xFF4CAF50),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = exp.merchantName,
+                                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = MaterialTheme.colorScheme.primaryContainer
+                                        ) {
+                                            Text(
+                                                text = exp.category.displayName,
+                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = exp.dateString ?: "Receipt Detected",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = exp.formattedAmount,
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
+                                color = Color(0xFF4CAF50)
+                            )
+                        }
+                    }
                     Spacer(modifier = Modifier.height(10.dp))
                 }
 

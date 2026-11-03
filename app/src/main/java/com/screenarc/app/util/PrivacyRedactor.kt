@@ -182,6 +182,11 @@ object PrivacyRedactor {
             putExtra(Intent.EXTRA_STREAM, imageUri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(Intent.createChooser(shareIntent, "Share Redacted Screenshot"))
+        val chooser = Intent.createChooser(shareIntent, "Share Redacted Screenshot").apply {
+            if (context !is android.app.Activity) {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        }
+        context.startActivity(chooser)
     }
 }

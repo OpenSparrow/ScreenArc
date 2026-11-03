@@ -85,6 +85,10 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import com.screenarc.app.ui.dialog.DuplicateReviewDialog
+import com.screenarc.app.ui.dialog.ExpenseLedgerDialog
+import com.screenarc.app.util.ReceiptExpenseExtractor
+import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -174,6 +178,25 @@ fun HomeScreen(
         label = "DuplicateArrow"
     )
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+
+    // Smart Expense & Receipt Ledger State
+    var showExpenseLedgerDialog by remember { mutableStateOf(false) }
+    val detectedExpenses = remember(allScreenshots) {
+        allScreenshots.mapNotNull { item ->
+            val text = item.ocrText?.recognizedText ?: return@mapNotNull null
+            ReceiptExpenseExtractor.extractExpense(
+                rawText = text,
+                screenshotId = item.screenshot.id,
+                screenshotUri = item.screenshot.uri,
+                fileName = item.screenshot.displayName
+            )
+        }
+    }
+    val expenseSummary = remember(detectedExpenses) {
+        if (detectedExpenses.isNotEmpty()) {
+            ReceiptExpenseExtractor.computeSummary(detectedExpenses)
+        } else null
+    }
 
     LaunchedEffect(allScreenshots.size, settings.duplicateFinderEnabled) {
         if (screenshotRepo != null && settings.duplicateFinderEnabled && allScreenshots.isNotEmpty()) {
@@ -414,6 +437,105 @@ fun HomeScreen(
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Smart Expense & Receipt Ledger Card (PRO Feature)
+        if (detectedExpenses.isNotEmpty() && expenseSummary != null) {
+            item {
+                GlassElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    cornerRadius = 24.dp
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    modifier = Modifier.size(42.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.ReceiptLong,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "Smart Expense Ledger",
+                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = Color(0xFF4CAF50).copy(alpha = 0.2f)
+                                        ) {
+                                            Text(
+                                                text = "PRO",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                color = Color(0xFF4CAF50),
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = "${expenseSummary.totalReceiptsCount} receipts detected • ${expenseSummary.formattedTotal} total",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Button(
+                                onClick = { showExpenseLedgerDialog = true },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Icon(Icons.Default.ReceiptLong, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("View Ledger", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    val csv = ReceiptExpenseExtractor.exportToCsv(detectedExpenses)
+                                    scope.launch {
+                                        val uri = ReceiptExpenseExtractor.saveCsvToDownloads(context, csv)
+                                        if (uri != null) {
+                                            android.widget.Toast.makeText(context, "CSV saved to Downloads", android.widget.Toast.LENGTH_SHORT).show()
+                                            ReceiptExpenseExtractor.shareCsv(context, uri)
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Icon(Icons.Default.TableChart, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Export CSV", fontSize = 12.sp)
                             }
                         }
                     }
@@ -951,6 +1073,7 @@ fun HomeScreen(
                     onClick = {
                         val toDelete = group.duplicates
                         showTrashConfirmationGroup = null
+                        duplicateGroups = duplicateGroups.filter { it.primary.uri != group.primary.uri }
                         if (screenshotRepo != null) {
                             scope.launch {
                                 screenshotRepo.deleteBatch(toDelete)
@@ -992,6 +1115,7 @@ fun HomeScreen(
                     onClick = {
                         val allDuplicates = duplicateGroups.flatMap { it.duplicates }
                         showTrashAllConfirmation = false
+                        duplicateGroups = emptyList()
                         if (screenshotRepo != null) {
                             scope.launch {
                                 screenshotRepo.deleteBatch(allDuplicates)
@@ -1022,12 +1146,26 @@ fun HomeScreen(
             onDismiss = { showDuplicateReviewDialog = false },
             onDeleteScreenshots = { toDelete ->
                 showDuplicateReviewDialog = false
+                val deletedUris = toDelete.map { it.uri }.toSet()
+                duplicateGroups = duplicateGroups.mapNotNull { g ->
+                    val remainingDups = g.duplicates.filter { it.uri !in deletedUris }
+                    if (remainingDups.isEmpty() || g.primary.uri in deletedUris) null
+                    else g.copy(duplicates = remainingDups)
+                }
                 if (screenshotRepo != null && toDelete.isNotEmpty()) {
                     scope.launch {
                         screenshotRepo.deleteBatch(toDelete)
                     }
                 }
             }
+        )
+    }
+
+    // Smart Expense & Receipt Ledger Window
+    if (showExpenseLedgerDialog && detectedExpenses.isNotEmpty()) {
+        ExpenseLedgerDialog(
+            expenses = detectedExpenses,
+            onDismiss = { showExpenseLedgerDialog = false }
         )
     }
 }
