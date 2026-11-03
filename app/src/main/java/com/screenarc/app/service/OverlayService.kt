@@ -141,6 +141,7 @@ class OverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        registerScreenshotObserver()
         when (intent?.action) {
             ACTION_STOP_SERVICE -> {
                 Log.d(TAG, "Stopping OverlayService")
@@ -204,6 +205,15 @@ class OverlayService : Service() {
                     )
                 } catch (e: Exception) {
                     Log.w(TAG, "Could not register VOLUME_EXTERNAL observer: ${e.message}")
+                }
+                try {
+                    contentResolver.registerContentObserver(
+                        MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+                        true,
+                        screenshotObserver!!
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not register VOLUME_EXTERNAL_PRIMARY observer: ${e.message}")
                 }
             }
             Log.d(TAG, "Registered MediaStore content observer successfully")

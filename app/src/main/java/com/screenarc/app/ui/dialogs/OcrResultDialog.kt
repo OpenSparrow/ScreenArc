@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -498,6 +499,24 @@ fun OcrResultDialog(
                             Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Share")
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                try {
+                                    val encoded = java.net.URLEncoder.encode(rawText.take(1000), "UTF-8")
+                                    val webIntent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://translate.google.com/?sl=auto&tl=en&text=$encoded"))
+                                    context.startActivity(webIntent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Could not open translator", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Translate, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Translate", fontSize = 12.sp, maxLines = 1)
                         }
                     }
 

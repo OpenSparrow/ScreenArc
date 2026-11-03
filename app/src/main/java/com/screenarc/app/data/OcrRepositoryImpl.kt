@@ -23,10 +23,13 @@ import com.screenarc.app.ocr.OcrEngineProvider
 import com.screenarc.app.ocr.OcrLanguage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -220,6 +223,16 @@ class OcrRepositoryImpl(
         recognizer: TextRecognizer,
         isBatch: Boolean = false
     ): OcrResult = withContext(ocrDispatcher) {
+        val prepared = prepareOptimizedInputImage(context, uri)
+        recognizePreparedImage(uri, prepared, recognizer, isBatch)
+    }
+
+    private suspend fun recognizePreparedImage(
+        uri: Uri,
+        prepared: PreparedImage,
+        recognizer: TextRecognizer,
+        isBatch: Boolean = false
+    ): OcrResult = withContext(ocrDispatcher) {
         val uriString = uri.toString()
         val processedTime = System.currentTimeMillis()
 
@@ -244,7 +257,6 @@ class OcrRepositoryImpl(
         }
 
         ocrSemaphore.withPermit {
-            val prepared = prepareOptimizedInputImage(context, uri)
             try {
                 val visionText: Text = suspendCancellableCoroutine { continuation ->
                     val task = recognizer.process(prepared.inputImage)
@@ -480,13 +492,29 @@ class OcrRepositoryImpl(
         var failed = 0
         var lastErr: String? = null
 
+        // Pipelined producer-consumer: decode & downsample image N+1 on Dispatchers.IO while ML Kit infers image N
+        val pipelineChannel = Channel<Triple<Int, com.screenarc.app.data.local.db.relation.ScreenshotWithOcrAndCategory, PreparedImage>>(capacity = 2)
+        val prefetchJob = CoroutineScope(Dispatchers.IO).launch {
+            try {
+                for ((index, item) in toProcess.withIndex()) {
+                    if (isCancelled.get()) break
+                    val uri = Uri.parse(item.screenshot.uri)
+                    val prepared = prepareOptimizedInputImage(context, uri)
+                    pipelineChannel.send(Triple(index + 1, item, prepared))
+                }
+            } catch (_: Exception) {
+            } finally {
+                pipelineChannel.close()
+            }
+        }
+
         try {
-            for ((index, item) in toProcess.withIndex()) {
+            for ((currentIdx, item, prepared) in pipelineChannel) {
                 if (isCancelled.get()) {
+                    prepared.close()
                     break
                 }
 
-                val currentIdx = index + 1
                 val screenshot = item.screenshot
                 val uri = Uri.parse(screenshot.uri)
 
@@ -496,7 +524,7 @@ class OcrRepositoryImpl(
                 )
 
                 try {
-                    val result = recognizeWithRecognizer(uri, recognizer, isBatch = true)
+                    val result = recognizePreparedImage(uri, prepared, recognizer, isBatch = true)
                     if (result.success) {
                         indexed++
                     } else {
@@ -516,9 +544,15 @@ class OcrRepositoryImpl(
                     failedCount = failed,
                     lastError = lastErr
                 )
-                delay(20)
+                delay(10)
             }
         } finally {
+            prefetchJob.cancel()
+            // Drain and recycle any unconsumed prepared images
+            while (true) {
+                val pending = pipelineChannel.tryReceive().getOrNull() ?: break
+                pending.third.close()
+            }
             val wasCancelled = isCancelled.get()
             val finalProgress = _batchProgress.value.copy(
                 isRunning = false,

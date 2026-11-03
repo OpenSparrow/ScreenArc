@@ -71,6 +71,7 @@ class RedactionEditorActivity : ComponentActivity() {
     }
 
     companion object {
+        const val MODE_EDIT = "edit"
         const val MODE_SHARE = "share"
         const val MODE_DELETE = "delete"
         const val MODE_SHARE_AND_DELETE = "share_and_delete"
@@ -83,6 +84,20 @@ class RedactionEditorActivity : ComponentActivity() {
         const val EXTRA_SIZE = "extra_redaction_size"
         const val EXTRA_RELATIVE_PATH = "extra_redaction_relative_path"
         const val EXTRA_MIME_TYPE = "extra_redaction_mime_type"
+
+        fun newIntent(context: Context, screenshot: ScreenshotUiModel, mode: String = MODE_SHARE): Intent {
+            return Intent(context, RedactionEditorActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                putExtra(EXTRA_URI, screenshot.uri)
+                putExtra(EXTRA_DISPLAY_NAME, screenshot.displayName)
+                putExtra(EXTRA_MODE, mode)
+                putExtra(EXTRA_ID, screenshot.id)
+                putExtra(EXTRA_DATE_ADDED, screenshot.dateAdded)
+                putExtra(EXTRA_SIZE, screenshot.size)
+                putExtra(EXTRA_RELATIVE_PATH, screenshot.relativePath)
+                putExtra(EXTRA_MIME_TYPE, screenshot.mimeType)
+            }
+        }
 
         fun newIntent(context: Context, screenshot: ScreenshotItem, mode: String): Intent {
             return Intent(context, RedactionEditorActivity::class.java).apply {

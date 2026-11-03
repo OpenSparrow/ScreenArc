@@ -12,8 +12,9 @@ class PackageReplacedReceiver : BroadcastReceiver() {
         if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
             Log.d(TAG, "My package replaced broadcast received")
             val settingsRepo = AppSettingsRepository(context)
-            if (settingsRepo.settings.value.isServiceEnabled) {
+            if (android.provider.Settings.canDrawOverlays(context) || settingsRepo.settings.value.isServiceEnabled) {
                 Log.d(TAG, "Restarting OverlayService after package update")
+                settingsRepo.updateSettings { it.copy(isServiceEnabled = true) }
                 OverlayService.startService(context)
             }
         }

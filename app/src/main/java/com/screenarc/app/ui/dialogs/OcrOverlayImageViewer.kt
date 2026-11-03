@@ -3,6 +3,7 @@ package com.screenarc.app.ui.dialogs
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -16,9 +17,12 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
@@ -37,8 +41,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.ZoomOutMap
@@ -56,6 +63,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +75,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -79,25 +89,52 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.screenarc.app.RedactionEditorActivity
 import com.screenarc.app.model.OcrBlock
 import com.screenarc.app.model.ScreenshotUiModel
 import com.screenarc.app.ocr.OcrCoordinateTransformer
+import com.screenarc.app.util.FreehandPath
+import com.screenarc.app.util.PrivacyRedactor
+import com.screenarc.app.util.RedactionItem
+import com.screenarc.app.util.RedactionType
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun OcrOverlayImageViewer(
     screenshot: ScreenshotUiModel,
-    blocks: List<OcrBlock>,
+    blocks: List<OcrBlock> = screenshot.blocks,
+    allScreenshots: List<ScreenshotUiModel> = listOf(screenshot),
     searchQuery: String? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var currentIndex by remember(screenshot.uri, allScreenshots) {
+        val idx = allScreenshots.indexOfFirst { it.uri == screenshot.uri }
+        mutableIntStateOf(if (idx >= 0) idx else 0)
+    }
+
+    val currentScreenshot = if (allScreenshots.isNotEmpty() && currentIndex in allScreenshots.indices) {
+        allScreenshots[currentIndex]
+    } else {
+        screenshot
+    }
+
+    val currentBlocks = if (currentScreenshot.uri == screenshot.uri && blocks.isNotEmpty()) {
+        blocks
+    } else {
+        currentScreenshot.blocks
+    }
 
     var showBoxes by remember { mutableStateOf(true) }
-    var rawImageWidth by remember { mutableIntStateOf(0) }
-    var rawImageHeight by remember { mutableIntStateOf(0) }
+    var rawImageWidth by remember(currentScreenshot.uri) { mutableIntStateOf(0) }
+    var rawImageHeight by remember(currentScreenshot.uri) { mutableIntStateOf(0) }
     var isVisible by remember { mutableStateOf(false) }
 
     // Entrance animation
@@ -120,32 +157,55 @@ fun OcrOverlayImageViewer(
         label = "EntranceAlpha"
     )
 
-    // Pre-decode dimensions if available
-    LaunchedEffect(screenshot.uri) {
-        val dims = OcrCoordinateTransformer.getImageDimensions(context, screenshot.contentUri)
-        if (dims != null) {
-            rawImageWidth = dims.first
-            rawImageHeight = dims.second
+    // Accurate true pixel dimensions from file header
+    LaunchedEffect(currentScreenshot.uri) {
+        withContext(Dispatchers.IO) {
+            val dims = OcrCoordinateTransformer.getImageDimensions(context, currentScreenshot.contentUri)
+            if (dims != null && dims.first > 0 && dims.second > 0) {
+                rawImageWidth = dims.first
+                rawImageHeight = dims.second
+            }
         }
     }
 
     // Zoom & Pan transformation states
-    var zoomScale by remember { mutableFloatStateOf(1f) }
-    var panOffset by remember { mutableStateOf(Offset.Zero) }
+    var zoomScale by remember(currentScreenshot.uri) { mutableFloatStateOf(1f) }
+    var panOffset by remember(currentScreenshot.uri) { mutableStateOf(Offset.Zero) }
 
     // Interactive tapped block feedback
-    var tappedBlockText by remember { mutableStateOf<String?>(null) }
-    var lastTappedBlock by remember { mutableStateOf<OcrBlock?>(null) }
+    var tappedBlockText by remember(currentScreenshot.uri) { mutableStateOf<String?>(null) }
+    var lastTappedBlock by remember(currentScreenshot.uri) { mutableStateOf<OcrBlock?>(null) }
 
     // Redaction and privacy tool state
-    var isRedactionActive by remember { mutableStateOf(false) }
-    var redactionMode by remember { mutableStateOf(com.screenarc.app.util.RedactionType.BLACKOUT) }
-    var redactedBlocks by remember { mutableStateOf<Map<OcrBlock, com.screenarc.app.util.RedactionType>>(emptyMap()) }
-    var freehandBrushActive by remember { mutableStateOf(false) }
-    var currentStrokePoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
-    var completedStrokes by remember { mutableStateOf<List<com.screenarc.app.util.FreehandPath>>(emptyList()) }
+    var isRedactionActive by remember(currentScreenshot.uri) { mutableStateOf(false) }
+    var redactionMode by remember { mutableStateOf(RedactionType.BLACKOUT) }
+    var redactedBlocks by remember(currentScreenshot.uri) { mutableStateOf<Map<OcrBlock, RedactionType>>(emptyMap()) }
+    var freehandBrushActive by remember(currentScreenshot.uri) { mutableStateOf(false) }
+    var currentStrokePoints by remember(currentScreenshot.uri) { mutableStateOf<List<Offset>>(emptyList()) }
+    var completedStrokes by remember(currentScreenshot.uri) { mutableStateOf<List<FreehandPath>>(emptyList()) }
     var isSavingRedacted by remember { mutableStateOf(false) }
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
+
+    var dragAccumulator by remember(currentScreenshot.uri) { mutableFloatStateOf(0f) }
+
+    fun navigateNext() {
+        if (currentIndex < allScreenshots.size - 1) {
+            currentIndex++
+            zoomScale = 1f
+            panOffset = Offset.Zero
+            tappedBlockText = null
+            lastTappedBlock = null
+        }
+    }
+
+    fun navigatePrevious() {
+        if (currentIndex > 0) {
+            currentIndex--
+            zoomScale = 1f
+            panOffset = Offset.Zero
+            tappedBlockText = null
+            lastTappedBlock = null
+        }
+    }
 
     val transformState = rememberTransformableState { zoomChange, offsetChange, _ ->
         if (!freehandBrushActive) {
@@ -169,9 +229,9 @@ fun OcrOverlayImageViewer(
 
     // Filter matching blocks if search query is provided
     val query = searchQuery?.trim()?.takeIf { it.isNotEmpty() }
-    val matchCount = remember(blocks, query) {
+    val matchCount = remember(currentBlocks, query) {
         if (query == null) 0
-        else blocks.count { it.text.contains(query, ignoreCase = true) }
+        else currentBlocks.count { it.text.contains(query, ignoreCase = true) }
     }
 
     Dialog(
@@ -192,12 +252,18 @@ fun OcrOverlayImageViewer(
                 val containerWidth = constraints.maxWidth.toFloat()
                 val containerHeight = constraints.maxHeight.toFloat()
 
-                // Calculate image dimensions fallback if unmeasured
-                val effectiveImageWidth = if (rawImageWidth > 0) rawImageWidth.toFloat()
-                else (blocks.maxOfOrNull { it.right ?: 1080 } ?: 1080).toFloat()
+                // Calculate image dimensions from decoded file or fall back to OCR block bounds
+                val effectiveImageWidth = if (rawImageWidth > 0) {
+                    rawImageWidth.toFloat()
+                } else {
+                    (currentBlocks.maxOfOrNull { it.right ?: 1080 } ?: 1080).toFloat()
+                }
 
-                val effectiveImageHeight = if (rawImageHeight > 0) rawImageHeight.toFloat()
-                else (blocks.maxOfOrNull { it.bottom ?: 1920 } ?: 1920).toFloat()
+                val effectiveImageHeight = if (rawImageHeight > 0) {
+                    rawImageHeight.toFloat()
+                } else {
+                    (currentBlocks.maxOfOrNull { it.bottom ?: 1920 } ?: 1920).toFloat()
+                }
 
                 val fitParams = remember(containerWidth, containerHeight, effectiveImageWidth, effectiveImageHeight) {
                     OcrCoordinateTransformer.computeFitParams(
@@ -208,22 +274,19 @@ fun OcrOverlayImageViewer(
                     )
                 }
 
-                // Subtle gradient background
+                // Background gradient
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(
                             Brush.radialGradient(
-                                colors = listOf(
-                                    Color(0xFF111111),
-                                    Color(0xFF050505)
-                                ),
-                                radius = containerWidth * 0.8f
+                                colors = listOf(Color(0xFF141414), Color(0xFF050505)),
+                                radius = containerWidth * 0.85f
                             )
                         )
                 )
 
-                // Main Interactive Layer (Zoomable & Pannable & Tappable)
+                // Main Interactive Layer (Zoomable, Pannable, Tappable & Horizontal Swipe)
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -234,7 +297,27 @@ fun OcrOverlayImageViewer(
                             translationY = panOffset.y
                         }
                         .transformable(state = transformState)
-                        .pointerInput(blocks, fitParams, zoomScale, panOffset) {
+                        .pointerInput(currentScreenshot.uri, zoomScale, allScreenshots.size, isRedactionActive) {
+                            if (zoomScale <= 1.08f && allScreenshots.size > 1 && !freehandBrushActive) {
+                                detectHorizontalDragGestures(
+                                    onHorizontalDrag = { _, dragAmount ->
+                                        dragAccumulator += dragAmount
+                                    },
+                                    onDragEnd = {
+                                        if (dragAccumulator < -50f) {
+                                            navigateNext()
+                                        } else if (dragAccumulator > 50f) {
+                                            navigatePrevious()
+                                        }
+                                        dragAccumulator = 0f
+                                    },
+                                    onDragCancel = {
+                                        dragAccumulator = 0f
+                                    }
+                                )
+                            }
+                        }
+                        .pointerInput(currentBlocks, fitParams, zoomScale, panOffset) {
                             detectTapGestures(
                                 onDoubleTap = { tapCenter ->
                                     if (zoomScale > 1.2f) {
@@ -254,12 +337,11 @@ fun OcrOverlayImageViewer(
                                     val hitBlock = OcrCoordinateTransformer.findBlockAtPoint(
                                         touchX = tapOffset.x,
                                         touchY = tapOffset.y,
-                                        blocks = blocks,
+                                        blocks = currentBlocks,
                                         fitParams = fitParams
                                     )
                                     if (hitBlock != null) {
                                         if (isRedactionActive) {
-                                            // Toggle redaction on tapped block
                                             val current = redactedBlocks[hitBlock]
                                             redactedBlocks = if (current != null) {
                                                 redactedBlocks - hitBlock
@@ -271,37 +353,40 @@ fun OcrOverlayImageViewer(
                                             tappedBlockText = hitBlock.text
                                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                             clipboard.setPrimaryClip(ClipData.newPlainText("Recognized Text", hitBlock.text))
-                                            Toast.makeText(context, "Copied!", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Copied text!", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 }
                             )
                         }
                 ) {
-                    // Screenshot Image with subtle vignette
+                    // Full Resolution Crystal Clear Image Display
                     AsyncImage(
-                        model = screenshot.contentUri,
-                        contentDescription = screenshot.displayName,
+                        model = ImageRequest.Builder(context)
+                            .data(currentScreenshot.contentUri)
+                            .size(coil.size.Size.ORIGINAL)
+                            .crossfade(false)
+                            .build(),
+                        contentDescription = currentScreenshot.displayName,
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxSize(),
                         onSuccess = { state ->
                             val d = state.result.drawable
-                            if (d.intrinsicWidth > 0 && d.intrinsicHeight > 0) {
+                            if (rawImageWidth <= 0 && d.intrinsicWidth > 0 && d.intrinsicHeight > 0) {
                                 rawImageWidth = d.intrinsicWidth
                                 rawImageHeight = d.intrinsicHeight
                             }
                         }
                     )
 
-                    // Bounding Boxes Overlay Canvas - with rounded corners and glow
-                    if (showBoxes && blocks.isNotEmpty() && fitParams.scale > 0f) {
+                    // Bounding Boxes Overlay Canvas
+                    if (showBoxes && currentBlocks.isNotEmpty() && fitParams.scale > 0f) {
                         Canvas(modifier = Modifier.fillMaxSize()) {
-                            blocks.forEach { block ->
+                            currentBlocks.forEach { block ->
                                 val rect = OcrCoordinateTransformer.transformBlockToViewRect(block, fitParams)
                                 if (rect != null && rect.width > 0 && rect.height > 0) {
                                     val isMatch = query != null && block.text.contains(query, ignoreCase = true)
                                     val isTapped = lastTappedBlock == block
-
                                     val cornerRadius = 4.dp.toPx()
 
                                     val isRedacted = redactedBlocks.containsKey(block)
@@ -309,8 +394,7 @@ fun OcrOverlayImageViewer(
 
                                     when {
                                         isRedacted -> {
-                                            if (redactionType == com.screenarc.app.util.RedactionType.BLACKOUT) {
-                                                // Solid blackout
+                                            if (redactionType == RedactionType.BLACKOUT) {
                                                 drawRoundRect(
                                                     color = Color.Black,
                                                     topLeft = Offset(rect.left, rect.top),
@@ -318,7 +402,6 @@ fun OcrOverlayImageViewer(
                                                     cornerRadius = CornerRadius(cornerRadius)
                                                 )
                                             } else {
-                                                // Pixelate pattern styling
                                                 drawRoundRect(
                                                     color = Color(0xDD37474F),
                                                     topLeft = Offset(rect.left, rect.top),
@@ -335,7 +418,6 @@ fun OcrOverlayImageViewer(
                                             }
                                         }
                                         isTapped -> {
-                                            // Glow effect for tapped block
                                             drawRoundRect(
                                                 color = Color(0x4400E676),
                                                 topLeft = Offset(rect.left - 3f, rect.top - 3f),
@@ -357,7 +439,6 @@ fun OcrOverlayImageViewer(
                                             )
                                         }
                                         isMatch -> {
-                                            // Amber highlight for search matches
                                             drawRoundRect(
                                                 color = Color(0x55FFC107),
                                                 topLeft = Offset(rect.left - 2f, rect.top - 2f),
@@ -379,7 +460,6 @@ fun OcrOverlayImageViewer(
                                             )
                                         }
                                         else -> {
-                                            // Default subtle blue
                                             drawRoundRect(
                                                 color = Color(0x222196F3),
                                                 topLeft = Offset(rect.left, rect.top),
@@ -398,10 +478,10 @@ fun OcrOverlayImageViewer(
                                 }
                             }
 
-                            // Freehand blur/blackout strokes
+                            // Freehand strokes
                             completedStrokes.forEach { stroke ->
                                 if (stroke.points.size >= 2) {
-                                    val path = androidx.compose.ui.graphics.Path()
+                                    val path = Path()
                                     path.moveTo(stroke.points[0].x, stroke.points[0].y)
                                     for (i in 1 until stroke.points.size) {
                                         path.lineTo(stroke.points[i].x, stroke.points[i].y)
@@ -409,16 +489,16 @@ fun OcrOverlayImageViewer(
                                     drawPath(
                                         path = path,
                                         color = Color.Black,
-                                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                        style = Stroke(
                                             width = stroke.strokeWidth,
-                                            cap = androidx.compose.ui.graphics.StrokeCap.Round,
-                                            join = androidx.compose.ui.graphics.StrokeJoin.Round
+                                            cap = StrokeCap.Round,
+                                            join = StrokeJoin.Round
                                         )
                                     )
                                 }
                             }
                             if (currentStrokePoints.size >= 2) {
-                                val currentPath = androidx.compose.ui.graphics.Path()
+                                val currentPath = Path()
                                 currentPath.moveTo(currentStrokePoints[0].x, currentStrokePoints[0].y)
                                 for (i in 1 until currentStrokePoints.size) {
                                     currentPath.lineTo(currentStrokePoints[i].x, currentStrokePoints[i].y)
@@ -426,13 +506,59 @@ fun OcrOverlayImageViewer(
                                 drawPath(
                                     path = currentPath,
                                     color = Color.Black,
-                                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    style = Stroke(
                                         width = 36f,
-                                        cap = androidx.compose.ui.graphics.StrokeCap.Round,
-                                        join = androidx.compose.ui.graphics.StrokeJoin.Round
+                                        cap = StrokeCap.Round,
+                                        join = StrokeJoin.Round
                                     )
                                 )
                             }
+                        }
+                    }
+                }
+
+                // Floating Previous Button on left edge
+                if (currentIndex > 0 && zoomScale <= 1.08f) {
+                    Surface(
+                        shape = CircleShape,
+                        color = Color.Black.copy(alpha = 0.65f),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(start = 12.dp)
+                            .size(46.dp)
+                            .clip(CircleShape)
+                    ) {
+                        IconButton(onClick = { navigatePrevious() }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Previous image",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Floating Next Button on right edge
+                if (currentIndex < allScreenshots.size - 1 && zoomScale <= 1.08f) {
+                    Surface(
+                        shape = CircleShape,
+                        color = Color.Black.copy(alpha = 0.65f),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(end = 12.dp)
+                            .size(46.dp)
+                            .clip(CircleShape)
+                    ) {
+                        IconButton(onClick = { navigateNext() }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = "Next image",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
                         }
                     }
                 }
@@ -441,11 +567,11 @@ fun OcrOverlayImageViewer(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(120.dp)
+                        .height(130.dp)
                         .align(Alignment.TopCenter)
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(Color(0xCC000000), Color.Transparent)
+                                colors = listOf(Color(0xDD000000), Color.Transparent)
                             )
                         )
                 )
@@ -458,7 +584,7 @@ fun OcrOverlayImageViewer(
                         .align(Alignment.BottomCenter)
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, Color(0xCC000000))
+                                colors = listOf(Color.Transparent, Color(0xDD000000))
                             )
                         )
                 )
@@ -474,7 +600,7 @@ fun OcrOverlayImageViewer(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = screenshot.displayName,
+                            text = currentScreenshot.displayName,
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                             color = Color.White,
                             maxLines = 1,
@@ -483,12 +609,17 @@ fun OcrOverlayImageViewer(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
-                                color = Color.White.copy(alpha = 0.15f)
+                                color = Color.White.copy(alpha = 0.18f)
                             ) {
+                                val counterText = if (allScreenshots.size > 1) {
+                                    "${currentIndex + 1} / ${allScreenshots.size}  •  ${currentBlocks.size} text blocks"
+                                } else {
+                                    "${currentBlocks.size} text blocks"
+                                }
                                 Text(
-                                    text = "${blocks.size} text blocks",
+                                    text = counterText,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = Color.White.copy(alpha = 0.85f),
+                                    color = Color.White.copy(alpha = 0.9f),
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                 )
                             }
@@ -496,7 +627,7 @@ fun OcrOverlayImageViewer(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFFFFD54F).copy(alpha = 0.2f)
+                                    color = Color(0xFFFFD54F).copy(alpha = 0.25f)
                                 ) {
                                     Text(
                                         text = "$matchCount matching",
@@ -509,24 +640,48 @@ fun OcrOverlayImageViewer(
                         }
                     }
 
+                    // Edit & Annotate Screenshot Button (Launches RedactionEditorActivity)
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                    ) {
+                        IconButton(onClick = {
+                            val editIntent = RedactionEditorActivity.newIntent(context, currentScreenshot, mode = "edit")
+                            context.startActivity(editIntent)
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Edit and Save Copy",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
                     // Privacy Redaction Mode Toggle
                     Surface(
                         shape = CircleShape,
                         color = if (isRedactionActive) Color(0xFFE91E63).copy(alpha = 0.45f) else Color.White.copy(alpha = 0.12f),
-                        border = androidx.compose.foundation.BorderStroke(
+                        border = BorderStroke(
                             1.dp,
                             if (isRedactionActive) Color(0xFFFF4081) else Color.White.copy(alpha = 0.2f)
                         ),
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(42.dp)
                             .clip(CircleShape)
                     ) {
                         IconButton(onClick = { isRedactionActive = !isRedactionActive }) {
                             Icon(
-                                imageVector = androidx.compose.material.icons.Icons.Default.ContentCopy,
+                                imageVector = Icons.Default.ContentCopy,
                                 contentDescription = if (isRedactionActive) "Exit Redaction" else "Redact",
                                 tint = if (isRedactionActive) Color(0xFFFF4081) else Color.White.copy(alpha = 0.85f),
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(19.dp)
                             )
                         }
                     }
@@ -537,12 +692,12 @@ fun OcrOverlayImageViewer(
                     Surface(
                         shape = CircleShape,
                         color = if (showBoxes) Color(0xFF1E88E5).copy(alpha = 0.35f) else Color.White.copy(alpha = 0.12f),
-                        border = androidx.compose.foundation.BorderStroke(
+                        border = BorderStroke(
                             1.dp,
                             if (showBoxes) Color(0xFF64B5F6).copy(alpha = 0.7f) else Color.White.copy(alpha = 0.2f)
                         ),
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(42.dp)
                             .clip(CircleShape)
                     ) {
                         IconButton(onClick = { showBoxes = !showBoxes }) {
@@ -550,7 +705,7 @@ fun OcrOverlayImageViewer(
                                 imageVector = if (showBoxes) Icons.Default.Visibility else Icons.Default.VisibilityOff,
                                 contentDescription = if (showBoxes) "Hide boxes" else "Show boxes",
                                 tint = if (showBoxes) Color(0xFF64B5F6) else Color.White.copy(alpha = 0.7f),
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(19.dp)
                             )
                         }
                     }
@@ -561,9 +716,9 @@ fun OcrOverlayImageViewer(
                     Surface(
                         shape = CircleShape,
                         color = Color.White.copy(alpha = 0.12f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(42.dp)
                             .clip(CircleShape)
                     ) {
                         IconButton(onClick = onDismiss) {
@@ -571,136 +726,104 @@ fun OcrOverlayImageViewer(
                                 Icons.Default.Close,
                                 contentDescription = "Close",
                                 tint = Color.White,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(19.dp)
                             )
                         }
                     }
                 }
 
-                // Zoom indicator pill (floating, top-right, when zoomed)
+                // Zoom indicator pill
                 AnimatedVisibility(
                     visible = zoomScale > 1.1f,
                     enter = scaleIn(spring(Spring.DampingRatioMediumBouncy)) + fadeIn(),
                     exit = scaleOut() + fadeOut(),
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(top = 88.dp, end = 16.dp)
+                        .padding(top = 80.dp, end = 16.dp)
                 ) {
                     Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = Color(0xFF1E1E1E).copy(alpha = 0.9f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.Black.copy(alpha = 0.75f),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "${String.format("%.1f", zoomScale)}x",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            IconButton(
-                                onClick = {
+                            modifier = Modifier
+                                .clickable {
                                     zoomScale = 1f
                                     panOffset = Offset.Zero
-                                },
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.ZoomOutMap,
-                                    contentDescription = "Reset Zoom",
-                                    tint = Color(0xFF64B5F6),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
+                                }
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ZoomOutMap,
+                                contentDescription = "Reset zoom",
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "${(zoomScale * 100).toInt()}%",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White
+                            )
                         }
                     }
                 }
 
-                // Bottom area: Copied block feedback + tip
+                // Bottom Floating Sheet / Tap Feedback
                 Column(
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 24.dp, start = 16.dp, end = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 20.dp)
+                        .align(Alignment.BottomCenter),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // Copied Block Feedback Banner
+                    // Tapped Block Feedback Banner
                     AnimatedVisibility(
                         visible = tappedBlockText != null,
-                        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(tween(200)),
-                        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(tween(200))
+                        enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
+                        exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut()
                     ) {
                         Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = Color(0xFF1A1A2E).copy(alpha = 0.97f),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E676).copy(alpha = 0.4f)),
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xEE1E1E1E),
+                            border = BorderStroke(1.dp, Color(0xFF00E676).copy(alpha = 0.6f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    modifier = Modifier.weight(1f),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = Color(0xFF00E676).copy(alpha = 0.15f),
-                                        modifier = Modifier.size(36.dp)
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                Icons.Default.ContentCopy,
-                                                contentDescription = null,
-                                                tint = Color(0xFF00E676),
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Column {
-                                        Text(
-                                            text = "Copied to clipboard",
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                            color = Color(0xFF00E676)
-                                        )
-                                        Text(
-                                            text = tappedBlockText ?: "",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = Color.White,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                }
-
-                                IconButton(onClick = { tappedBlockText = null }) {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = "Dismiss",
-                                        tint = Color.White.copy(alpha = 0.5f),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = null,
+                                    tint = Color(0xFF00E676),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = tappedBlockText ?: "",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                                    color = Color.White,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
                             }
                         }
                     }
 
-                    // Redaction Tool Bar (Blackout / Pixelate / Save Redacted Copy & Share)
+                    // Redaction Controls
                     AnimatedVisibility(
                         visible = isRedactionActive,
                         enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
                         exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
                     ) {
                         Surface(
-                            shape = RoundedCornerShape(24.dp),
-                            color = Color(0xFF1E1E2E).copy(alpha = 0.95f),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFF4081).copy(alpha = 0.4f)),
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0xEE1E1E1E),
+                            border = BorderStroke(1.dp, Color(0xFFFF4081).copy(alpha = 0.4f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(14.dp)) {
@@ -710,22 +833,43 @@ fun OcrOverlayImageViewer(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "Privacy Redaction (${redactedBlocks.size} blocks)",
+                                        text = "Privacy Redaction Mode",
                                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                         color = Color.White
                                     )
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        androidx.compose.material3.FilterChip(
-                                            selected = redactionMode == com.screenarc.app.util.RedactionType.BLACKOUT,
-                                            onClick = { redactionMode = com.screenarc.app.util.RedactionType.BLACKOUT },
-                                            label = { Text("Blackout", fontSize = 11.sp) }
-                                        )
-                                        androidx.compose.material3.FilterChip(
-                                            selected = redactionMode == com.screenarc.app.util.RedactionType.PIXELATE,
-                                            onClick = { redactionMode = com.screenarc.app.util.RedactionType.PIXELATE },
-                                            label = { Text("Pixelate", fontSize = 11.sp) }
-                                        )
-                                    }
+                                    Text(
+                                        text = "${redactedBlocks.size} block(s) redacted",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White.copy(alpha = 0.7f)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    FilterChip(
+                                        selected = redactionMode == RedactionType.BLACKOUT,
+                                        onClick = { redactionMode = RedactionType.BLACKOUT },
+                                        label = { Text("Blackout", fontSize = 11.sp) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color.Black,
+                                            selectedLabelColor = Color.White
+                                        ),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    FilterChip(
+                                        selected = redactionMode == RedactionType.PIXELATE,
+                                        onClick = { redactionMode = RedactionType.PIXELATE },
+                                        label = { Text("Pixelate", fontSize = 11.sp) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFF37474F),
+                                            selectedLabelColor = Color.White
+                                        ),
+                                        modifier = Modifier.weight(1f)
+                                    )
                                 }
 
                                 Spacer(modifier = Modifier.height(8.dp))
@@ -751,11 +895,11 @@ fun OcrOverlayImageViewer(
                                                 isSavingRedacted = true
                                                 scope.launch {
                                                     val redactionItems = redactedBlocks.map { (blk, type) ->
-                                                        com.screenarc.app.util.RedactionItem(blk, type)
+                                                        RedactionItem(blk, type)
                                                     }
-                                                    val newUri = com.screenarc.app.util.PrivacyRedactor.saveRedactedScreenshot(
+                                                    val newUri = PrivacyRedactor.saveRedactedScreenshot(
                                                         context = context,
-                                                        originalUri = screenshot.contentUri,
+                                                        originalUri = currentScreenshot.contentUri,
                                                         redactions = redactionItems,
                                                         freehandPaths = completedStrokes,
                                                         imageWidth = rawImageWidth,
@@ -764,7 +908,7 @@ fun OcrOverlayImageViewer(
                                                     isSavingRedacted = false
                                                     if (newUri != null) {
                                                         Toast.makeText(context, "Saved redacted copy!", Toast.LENGTH_SHORT).show()
-                                                        com.screenarc.app.util.PrivacyRedactor.shareRedactedImage(context, newUri)
+                                                        PrivacyRedactor.shareRedactedImage(context, newUri)
                                                     } else {
                                                         Toast.makeText(context, "Failed to save redacted image", Toast.LENGTH_SHORT).show()
                                                     }
@@ -796,15 +940,20 @@ fun OcrOverlayImageViewer(
                     }
 
                     // Gesture hint pill
-                    if (tappedBlockText == null && showBoxes && blocks.isNotEmpty()) {
+                    if (tappedBlockText == null) {
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = Color.Black.copy(alpha = 0.55f),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
                             modifier = Modifier.align(Alignment.CenterHorizontally)
                         ) {
+                            val hint = when {
+                                isRedactionActive -> "Tap blocks to redact/unredact"
+                                allScreenshots.size > 1 -> "Swipe left/right to change  •  Tap box to copy"
+                                else -> "Tap a box to copy  •  Double-tap to zoom"
+                            }
                             Text(
-                                text = if (isRedactionActive) "Tap blocks to redact/unredact" else "Tap a box to copy  •  Double-tap to zoom",
+                                text = hint,
                                 color = Color.White.copy(alpha = 0.75f),
                                 fontSize = 12.sp,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)

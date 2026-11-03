@@ -17,7 +17,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.util.concurrent.atomic.AtomicLong
 
 class ScreenshotObserver(
     private val context: Context,
@@ -39,16 +38,23 @@ class ScreenshotObserver(
             } else {
                 MediaStore.Images.Media.EXTERNAL_CONTENT_URI
             }
-            context.contentResolver.query(collection, projection, null, null, "${MediaStore.Images.Media.DATE_ADDED} DESC")?.use { cursor ->
+            context.contentResolver.query(
+                collection,
+                projection,
+                null,
+                null,
+                "${MediaStore.Images.Media.DATE_ADDED} DESC, ${MediaStore.Images.Media._ID} DESC"
+            )?.use { cursor ->
                 var count = 0
                 val idCol = cursor.getColumnIndex(MediaStore.Images.Media._ID)
-                while (cursor.moveToNext() && count < 25) {
+                while (cursor.moveToNext() && count < 50) {
                     if (idCol != -1) {
                         processedIds.add(cursor.getLong(idCol))
                     }
                     count++
                 }
             }
+            Log.d(TAG, "Pre-populated ${processedIds.size} existing screenshot IDs at observer startup")
         } catch (e: Exception) {
             Log.w(TAG, "Could not pre-populate existing screenshot IDs: ${e.message}")
         }
@@ -76,8 +82,8 @@ class ScreenshotObserver(
 
         debounceJob?.cancel()
         debounceJob = scope.launch(Dispatchers.IO) {
-            // Small initial debounce to let screenshot writer finish flushing image data
-            delay(350)
+            // Wait slightly for system screenshot tool to begin flushing file
+            delay(300)
             checkLatestScreenshot(attempt = 1, triggerUri = uri)
         }
     }
@@ -88,6 +94,8 @@ class ScreenshotObserver(
                 MediaStore.Images.Media._ID,
                 MediaStore.Images.Media.DISPLAY_NAME,
                 MediaStore.Images.Media.DATE_ADDED,
+                MediaStore.Images.Media.DATE_MODIFIED,
+                MediaStore.Images.Media.DATE_TAKEN,
                 MediaStore.Images.Media.SIZE,
                 MediaStore.Images.Media.MIME_TYPE,
                 MediaStore.Images.Media.RELATIVE_PATH,
@@ -98,13 +106,14 @@ class ScreenshotObserver(
                 MediaStore.Images.Media._ID,
                 MediaStore.Images.Media.DISPLAY_NAME,
                 MediaStore.Images.Media.DATE_ADDED,
+                MediaStore.Images.Media.DATE_MODIFIED,
                 MediaStore.Images.Media.SIZE,
                 MediaStore.Images.Media.MIME_TYPE,
                 MediaStore.Images.Media.DATA
             )
         }
 
-        val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
+        val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC, ${MediaStore.Images.Media._ID} DESC"
         val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
         } else {
@@ -112,9 +121,11 @@ class ScreenshotObserver(
         }
 
         try {
-            // If triggerUri is a specific image uri (e.g. content://media/external/images/media/123), try querying it directly first
-            val cursor = if (triggerUri != null && triggerUri.toString().contains("/images/media/")) {
-                context.contentResolver.query(triggerUri, projection, null, null, null)
+            // Check if triggerUri points to a specific item ID (e.g. content://media/external/images/media/12345)
+            val isSpecificItem = triggerUri != null && triggerUri.lastPathSegment?.toLongOrNull() != null
+
+            val cursor = if (isSpecificItem) {
+                context.contentResolver.query(triggerUri!!, projection, null, null, null)
                     ?: context.contentResolver.query(collection, projection, null, null, sortOrder)
             } else {
                 context.contentResolver.query(collection, projection, null, null, sortOrder)
@@ -122,51 +133,45 @@ class ScreenshotObserver(
 
             cursor?.use {
                 var checkedCount = 0
-                while (it.moveToNext() && checkedCount < 5) {
+                while (it.moveToNext() && checkedCount < 10) {
                     checkedCount++
                     val idColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
                     val nameColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
-                    val dateColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
+                    val dateAddedCol = it.getColumnIndex(MediaStore.Images.Media.DATE_ADDED)
+                    val dateModifiedCol = it.getColumnIndex(MediaStore.Images.Media.DATE_MODIFIED)
+                    val dateTakenCol = it.getColumnIndex("datetaken")
                     val sizeColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
                     val mimeColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
                     val pathColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        it.getColumnIndexOrThrow(MediaStore.Images.Media.RELATIVE_PATH)
+                        it.getColumnIndex(MediaStore.Images.Media.RELATIVE_PATH)
                     } else {
-                        it.getColumnIndexOrThrow(MediaStore.Images.Media.DATA)
+                        it.getColumnIndex(MediaStore.Images.Media.DATA)
                     }
 
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val id = it.getLong(idColumn)
+                    val name = it.getString(nameColumn) ?: ""
+                    val size = it.getLong(sizeColumn)
+                    val mime = it.getString(mimeColumn) ?: "image/png"
+                    val path = if (pathColumn != -1) it.getString(pathColumn) ?: "" else ""
+
+                    // Check if file is still writing (IS_PENDING = 1 or 0-byte file)
+                    val isPending = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         val isPendingIndex = it.getColumnIndex(MediaStore.Images.Media.IS_PENDING)
-                        if (isPendingIndex != -1 && it.getInt(isPendingIndex) == 1) {
-                            Log.d(TAG, "Screenshot is still pending/writing (attempt $attempt), retrying...")
-                            if (attempt < 4) {
-                                scope.launch(Dispatchers.IO) {
-                                    delay(250L * attempt)
-                                    checkLatestScreenshot(attempt + 1, triggerUri)
-                                }
+                        isPendingIndex != -1 && it.getInt(isPendingIndex) == 1
+                    } else false
+
+                    if (isPending || size <= 0) {
+                        if (attempt < 8) {
+                            Log.d(TAG, "Screenshot still pending or size=0 (attempt $attempt), retrying in 300ms...")
+                            scope.launch(Dispatchers.IO) {
+                                delay(300L)
+                                checkLatestScreenshot(attempt + 1, triggerUri)
                             }
                             return
                         }
                     }
 
-                    val id = it.getLong(idColumn)
-                    val name = it.getString(nameColumn) ?: ""
-                    val rawDateAdded = it.getLong(dateColumn)
-                    val size = it.getLong(sizeColumn)
-                    val mime = it.getString(mimeColumn) ?: "image/png"
-                    val path = it.getString(pathColumn) ?: ""
-
-                    // If file is 0 bytes, it might still be flushing to storage
-                    if (size <= 0 && attempt < 4) {
-                        Log.d(TAG, "Screenshot size is 0 bytes (attempt $attempt), scheduling retry...")
-                        scope.launch(Dispatchers.IO) {
-                            delay(250L * attempt)
-                            checkLatestScreenshot(attempt + 1, triggerUri)
-                        }
-                        return
-                    }
-
-                    // Check if already processed or excluded
+                    // Check if already processed or globally excluded
                     val contentUri = ContentUris.withAppendedId(collection, id)
                     if (processedIds.contains(id) || processedUris.contains(contentUri.toString()) || isExcluded(id, contentUri, name)) {
                         markProcessed(id, contentUri)
@@ -191,10 +196,11 @@ class ScreenshotObserver(
                     }
 
                     // Ignore internally generated / edited screenshots (redacted, edited, screenarc)
-                    val isInternallyGenerated = name.contains("redacted", ignoreCase = true) ||
-                            name.contains("screenarc", ignoreCase = true) ||
-                            name.contains("_edited", ignoreCase = true) ||
-                            name.startsWith("screenshot_redacted", ignoreCase = true)
+                    val lowerName = name.lowercase()
+                    val isInternallyGenerated = lowerName.contains("redacted") ||
+                            lowerName.contains("screenarc") ||
+                            lowerName.contains("_edited") ||
+                            lowerName.startsWith("screenshot_redacted")
 
                     if (isInternallyGenerated) {
                         Log.d(TAG, "Ignoring internally generated / redacted screenshot: $name")
@@ -202,27 +208,45 @@ class ScreenshotObserver(
                         continue
                     }
 
-                    // Normalize timestamp to seconds
-                    val dateAddedSec = if (rawDateAdded > 100_000_000_000L) rawDateAdded / 1000 else rawDateAdded
+                    // Normalize timestamps
+                    val rawDateAdded = if (dateAddedCol != -1) it.getLong(dateAddedCol) else 0L
+                    val rawDateModified = if (dateModifiedCol != -1) it.getLong(dateModifiedCol) else 0L
+                    val rawDateTaken = if (dateTakenCol != -1) it.getLong(dateTakenCol) else 0L
+
+                    val dateSec = when {
+                        rawDateAdded > 0L -> if (rawDateAdded > 100_000_000_000L) rawDateAdded / 1000 else rawDateAdded
+                        rawDateModified > 0L -> if (rawDateModified > 100_000_000_000L) rawDateModified / 1000 else rawDateModified
+                        rawDateTaken > 0L -> if (rawDateTaken > 100_000_000_000L) rawDateTaken / 1000 else rawDateTaken
+                        else -> System.currentTimeMillis() / 1000
+                    }
                     val currentTimeSec = System.currentTimeMillis() / 1000
-                    val isRecent = dateAddedSec > (observerStartTimeSec - 15) && dateAddedSec > 0L && kotlin.math.abs(currentTimeSec - dateAddedSec) < 60
+
+                    // Recency check: within the last 10 minutes or taken since observer started (with grace period)
+                    val isRecent = (currentTimeSec - dateSec) in -60..600 || dateSec >= (observerStartTimeSec - 60)
 
                     // Support diverse OEM screenshot directories & naming patterns
-                    val isScreenshotPath = path.contains("screenshot", ignoreCase = true) ||
-                            path.contains("screencapture", ignoreCase = true) ||
-                            path.contains("screen_capture", ignoreCase = true) ||
-                            path.contains("screen-capture", ignoreCase = true)
+                    val lowerPath = path.lowercase().replace('\\', '/')
+                    val isScreenshotPath = lowerPath.contains("screenshot") ||
+                            lowerPath.contains("screencap") ||
+                            lowerPath.contains("screen_capture") ||
+                            lowerPath.contains("screencapture") ||
+                            lowerPath.contains("screen-capture")
 
-                    val isScreenshotName = name.contains("screenshot", ignoreCase = true) ||
-                            name.startsWith("screen_", ignoreCase = true) ||
-                            name.startsWith("capture_", ignoreCase = true) ||
-                            name.contains("screen_shot", ignoreCase = true) ||
-                            name.contains("screencap", ignoreCase = true) ||
-                            name.contains("screen-shot", ignoreCase = true)
+                    val isScreenshotName = lowerName.contains("screenshot") ||
+                            lowerName.contains("screen_shot") ||
+                            lowerName.contains("screen-shot") ||
+                            lowerName.contains("screencap") ||
+                            lowerName.contains("screen_cap") ||
+                            lowerName.contains("screencapture") ||
+                            lowerName.contains("screen_capture") ||
+                            lowerName.startsWith("screen") ||
+                            lowerName.startsWith("capture") ||
+                            lowerName.contains("smartselect") ||
+                            lowerName.contains("quickmemo")
 
                     if (isRecent && (isScreenshotPath || isScreenshotName)) {
                         markProcessed(id, contentUri)
-                        Log.d(TAG, "Confirmed new screenshot: $name at $contentUri")
+                        Log.d(TAG, "Confirmed new screenshot detected: $name at $contentUri")
 
                         // Load preview bitmap & extract dynamic palette
                         val bitmap = MediaStoreOrganizer.loadThumbnail(context, contentUri, targetSize = 350)
@@ -233,7 +257,7 @@ class ScreenshotObserver(
                             id = id,
                             uri = contentUri,
                             displayName = name,
-                            dateAdded = dateAddedSec,
+                            dateAdded = dateSec,
                             size = size,
                             relativePath = path,
                             mimeType = mime,

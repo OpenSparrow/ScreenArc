@@ -46,6 +46,8 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import com.screenarc.app.RedactionEditorActivity
 import androidx.compose.material.icons.filled.DriveFileMove
 import androidx.compose.material.icons.filled.FilterList
 import com.screenarc.app.ui.components.EmptyStateView
@@ -661,6 +663,7 @@ fun ScreenshotsScreen(
         OcrOverlayImageViewer(
             screenshot = item,
             blocks = blocks,
+            allScreenshots = results,
             searchQuery = query.text.ifBlank { null },
             onDismiss = { screenshotForImageViewer = null }
         )
@@ -903,6 +906,7 @@ fun ScreenshotCardItem(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
     val dateFormat = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
 
@@ -969,7 +973,7 @@ fun ScreenshotCardItem(
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
                         .data(screenshot.contentUri)
-                        .size(360, 260)
+                        .size(720, 520)
                         .crossfade(true)
                         .build(),
                     contentDescription = screenshot.displayName,
@@ -1107,6 +1111,15 @@ fun ScreenshotCardItem(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false }
                         ) {
+                            DropdownMenuItem(
+                                text = { Text("Edit & Annotate") },
+                                onClick = {
+                                    showMenu = false
+                                    val intent = RedactionEditorActivity.newIntent(context, screenshot, mode = RedactionEditorActivity.MODE_EDIT)
+                                    context.startActivity(intent)
+                                },
+                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) }
+                            )
                             DropdownMenuItem(
                                 text = { Text("Move to Category") },
                                 onClick = {

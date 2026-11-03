@@ -21,6 +21,17 @@ object DuplicateDetector {
 
     private const val TIME_WINDOW_MS = 5 * 60 * 1000L // 5 minutes window
 
+    // Persistent cache across evaluations to avoid re-decoding already hashed screenshots
+    private val globalHashCache = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    fun invalidateHash(uri: String) {
+        globalHashCache.remove(uri)
+    }
+
+    fun clearCache() {
+        globalHashCache.clear()
+    }
+
     /**
      * Finds groups of duplicates or near-duplicates among the provided screenshots.
      * Uses:
@@ -39,9 +50,7 @@ object DuplicateDetector {
         val visitedUris = mutableSetOf<String>()
         val groups = mutableListOf<DuplicateGroup>()
 
-        // Cache computed hashes to avoid redundant bitmap decoding
-        val hashCache = mutableMapOf<String, Long>()
-
+        // Check global cache and resolve
         for (i in sorted.indices) {
             val itemA = sorted[i]
             if (visitedUris.contains(itemA.uri)) continue
@@ -76,8 +85,8 @@ object DuplicateDetector {
 
                 // 2. Check perceptual hash (dHash) if not already matched
                 if (!isDuplicate) {
-                    val hashA = hashCache.getOrPut(itemA.uri) { computeDHash(context, itemA.contentUri) }
-                    val hashB = hashCache.getOrPut(itemB.uri) { computeDHash(context, itemB.contentUri) }
+                    val hashA = globalHashCache.getOrPut(itemA.uri) { computeDHash(context, itemA.contentUri) }
+                    val hashB = globalHashCache.getOrPut(itemB.uri) { computeDHash(context, itemB.contentUri) }
                     if (hashA != 0L && hashB != 0L) {
                         val distance = hammingDistance(hashA, hashB)
                         // 64-bit dHash: distance <= 10 corresponds to ~85% visual match
@@ -150,19 +159,56 @@ object DuplicateDetector {
     }
 
     private fun computeDHash(context: Context, uri: Uri): Long {
-        return try {
-            context.contentResolver.openInputStream(uri)?.use { stream ->
-                val opts = BitmapFactory.Options().apply {
-                    inSampleSize = 2 // Quick sub-sample before resize
+        val uriStr = uri.toString()
+        globalHashCache[uriStr]?.let { return it }
+
+        val hash = try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                try {
+                    val thumb = context.contentResolver.loadThumbnail(uri, android.util.Size(32, 32), null)
+                    val h = computeDHash(thumb)
+                    thumb.recycle()
+                    h
+                } catch (_: Exception) {
+                    decodeFallbackDHash(context, uri)
                 }
-                val bmp = BitmapFactory.decodeStream(stream, null, opts)
+            } else {
+                decodeFallbackDHash(context, uri)
+            }
+        } catch (_: Exception) {
+            0L
+        }
+
+        if (hash != 0L) {
+            globalHashCache[uriStr] = hash
+        }
+        return hash
+    }
+
+    private fun decodeFallbackDHash(context: Context, uri: Uri): Long {
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream, null, bounds)
+            }
+            val maxDim = maxOf(bounds.outWidth, bounds.outHeight)
+            var sampleSize = 1
+            while (maxDim / (sampleSize * 2) >= 32) {
+                sampleSize *= 2
+            }
+            context.contentResolver.openInputStream(uri)?.use { s2 ->
+                val opts = BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                    inPreferredConfig = Bitmap.Config.RGB_565
+                }
+                val bmp = BitmapFactory.decodeStream(s2, null, opts)
                 bmp?.let {
                     val h = computeDHash(it)
                     it.recycle()
                     h
                 } ?: 0L
             } ?: 0L
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             0L
         }
     }

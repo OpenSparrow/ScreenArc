@@ -112,11 +112,16 @@ fun HomeScreen(
     val settings by settingsRepo.settings.collectAsState()
     val categories by categoryRepo.categories.collectAsState()
     val history by historyRepo.history.collectAsState()
+    val allScreenshots by (screenshotRepo?.getAllScreenshotsFlow() ?: kotlinx.coroutines.flow.emptyFlow()).collectAsState(initial = emptyList())
 
     var hasOverlayPermission by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(hasOverlayPermission) {
         hasOverlayPermission = Settings.canDrawOverlays(context)
+        if (hasOverlayPermission && !settings.isServiceEnabled) {
+            settingsRepo.updateSettings { it.copy(isServiceEnabled = true) }
+            OverlayService.startService(context)
+        }
     }
 
     val overlayPermissionLauncher = rememberLauncherForActivityResult(
@@ -170,14 +175,14 @@ fun HomeScreen(
     )
     val scope = androidx.compose.runtime.rememberCoroutineScope()
 
-    LaunchedEffect(screenshotRepo, settings.duplicateFinderEnabled) {
-        if (screenshotRepo != null && settings.duplicateFinderEnabled) {
+    LaunchedEffect(allScreenshots.size, settings.duplicateFinderEnabled) {
+        if (screenshotRepo != null && settings.duplicateFinderEnabled && allScreenshots.isNotEmpty()) {
             isScanningDuplicates = true
-            screenshotRepo.getAllScreenshotsFlow().collect { allItems ->
-                val uiModels = allItems.map { it.toUiModel() }
-                duplicateGroups = com.screenarc.app.util.DuplicateDetector.findDuplicates(context, uiModels)
-                isScanningDuplicates = false
+            val uiModels = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                allScreenshots.map { it.toUiModel() }
             }
+            duplicateGroups = com.screenarc.app.util.DuplicateDetector.findDuplicates(context, uiModels)
+            isScanningDuplicates = false
         } else {
             duplicateGroups = emptyList()
             isScanningDuplicates = false
@@ -306,6 +311,112 @@ fun HomeScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
                     )
+                }
+            }
+        }
+
+        // Storage & Library Insights Card
+        if (allScreenshots.isNotEmpty()) {
+            item {
+                GlassElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    cornerRadius = 24.dp,
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Folder,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Library Insights",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Text(
+                                text = "${allScreenshots.size} Total",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            // Categorized
+                            Column {
+                                Text(
+                                    text = "${allScreenshots.count { it.screenshot.categoryId != null }}",
+                                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                    color = Color(0xFF2E7D32)
+                                )
+                                Text(
+                                    text = "Categorized",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            // Uncategorized
+                            Column {
+                                Text(
+                                    text = "${allScreenshots.count { it.screenshot.categoryId == null }}",
+                                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                Text(
+                                    text = "Unsorted",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            // Indexed OCR
+                            Column {
+                                Text(
+                                    text = "${allScreenshots.count { it.screenshot.ocrStatus == "COMPLETED" }}",
+                                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "OCR Indexed",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            // Space Used
+                            Column {
+                                val mb = allScreenshots.sumOf { it.screenshot.size } / (1024f * 1024f)
+                                Text(
+                                    text = String.format(Locale.getDefault(), "%.1f MB", mb),
+                                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                                Text(
+                                    text = "Storage",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

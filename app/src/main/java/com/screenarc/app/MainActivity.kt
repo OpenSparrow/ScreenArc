@@ -108,10 +108,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkAndStartOverlayServiceIfEnabled() {
-        if (::settingsRepository.isInitialized &&
-            Settings.canDrawOverlays(this) &&
-            settingsRepository.settings.value.isServiceEnabled
-        ) {
+        if (::settingsRepository.isInitialized && Settings.canDrawOverlays(this)) {
+            if (!settingsRepository.settings.value.isServiceEnabled) {
+                settingsRepository.updateSettings { it.copy(isServiceEnabled = true) }
+            }
             OverlayService.startService(this)
         }
     }
@@ -141,6 +141,9 @@ class MainActivity : ComponentActivity() {
                     OnboardingScreen(
                         onFinish = {
                             settingsRepository.setOnboardingCompleted(true)
+                            if (Settings.canDrawOverlays(this@MainActivity)) {
+                                settingsRepository.updateSettings { it.copy(isServiceEnabled = true) }
+                            }
                             checkAndStartOverlayServiceIfEnabled()
                         }
                     )
