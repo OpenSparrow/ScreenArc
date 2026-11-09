@@ -381,19 +381,37 @@ fun OcrResultDialog(
                                             )
                                         }
                                     }
-                                    Text(
-                                        text = exp.dateString ?: "Receipt Detected",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = exp.transactionType.displayName,
+                                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                            color = if (exp.transactionType == com.screenarc.app.model.TransactionType.DEBIT) MaterialTheme.colorScheme.error else Color(0xFF00C853)
+                                        )
+                                        if (exp.sourceApp != null) {
+                                            Text(
+                                                text = " • via ${exp.sourceApp}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
                                 }
                             }
 
-                            Text(
-                                text = exp.formattedAmount,
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
-                                color = Color(0xFF4CAF50)
-                            )
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = "${exp.transactionType.sign}${exp.formattedAmount}",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
+                                    color = if (exp.transactionType == com.screenarc.app.model.TransactionType.DEBIT) MaterialTheme.colorScheme.error else Color(0xFF00C853)
+                                )
+                                if (exp.voucherOrDiscountOffset > 0.0) {
+                                    Text(
+                                        text = "Voucher: -${exp.currencySymbol}${exp.voucherOrDiscountOffset}",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                        color = Color(0xFF00B0FF)
+                                    )
+                                }
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.height(10.dp))

@@ -25,14 +25,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AttachMoney
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TableChart
+import androidx.compose.material.icons.filled.TrendingDown
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -42,6 +45,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -66,6 +71,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.screenarc.app.model.ExpenseCategory
 import com.screenarc.app.model.ExpenseItem
+import com.screenarc.app.model.TransactionType
 import com.screenarc.app.ui.theme.AuroraCyan
 import com.screenarc.app.ui.theme.ElectricIndigo
 import com.screenarc.app.ui.theme.LocalIsGlassmorphic
@@ -81,16 +87,26 @@ fun ExpenseLedgerDialog(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var selectedTypeFilter by remember { mutableStateOf<TransactionType?>(null) }
+    var selectedAppFilter by remember { mutableStateOf<String?>(null) }
     var selectedCategoryFilter by remember { mutableStateOf<ExpenseCategory?>(null) }
     var isExporting by remember { mutableStateOf(false) }
 
-    val filteredExpenses = remember(expenses, selectedCategoryFilter) {
-        if (selectedCategoryFilter == null) expenses
-        else expenses.filter { it.category == selectedCategoryFilter }
+    val filteredExpenses = remember(expenses, selectedTypeFilter, selectedAppFilter, selectedCategoryFilter) {
+        expenses.filter { item ->
+            val matchType = selectedTypeFilter == null || item.transactionType == selectedTypeFilter
+            val matchApp = selectedAppFilter == null || item.sourceApp == selectedAppFilter
+            val matchCategory = selectedCategoryFilter == null || item.category == selectedCategoryFilter
+            matchType && matchApp && matchCategory
+        }
     }
 
     val summary = remember(filteredExpenses) {
         ReceiptExpenseExtractor.computeSummary(filteredExpenses)
+    }
+
+    val availableApps = remember(expenses) {
+        expenses.mapNotNull { it.sourceApp }.distinct()
     }
 
     val isGlass = LocalIsGlassmorphic.current
@@ -102,8 +118,8 @@ fun ExpenseLedgerDialog(
         Surface(
             modifier = modifier
                 .fillMaxWidth(0.96f)
-                .widthIn(max = 740.dp)
-                .fillMaxHeight(0.92f)
+                .widthIn(max = 760.dp)
+                .fillMaxHeight(0.94f)
                 .clip(RoundedCornerShape(28.dp)),
             shape = RoundedCornerShape(28.dp),
             color = if (isGlass) Color(0xF212101E) else MaterialTheme.colorScheme.surface,
@@ -112,7 +128,7 @@ fun ExpenseLedgerDialog(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(20.dp)
+                    .padding(18.dp)
             ) {
                 // Header
                 Row(
@@ -131,7 +147,7 @@ fun ExpenseLedgerDialog(
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    imageVector = Icons.Default.ReceiptLong,
+                                    imageVector = Icons.AutoMirrored.Filled.ReceiptLong,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(24.dp)
@@ -142,7 +158,7 @@ fun ExpenseLedgerDialog(
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "Smart Expense Ledger",
+                                    text = "Advanced Expense & Voucher Ledger",
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
@@ -160,7 +176,7 @@ fun ExpenseLedgerDialog(
                                 }
                             }
                             Text(
-                                text = "Automated OCR financial extraction & spreadsheet export",
+                                text = "On-device credits, debits, voucher claims & net spend ledger",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -172,9 +188,9 @@ fun ExpenseLedgerDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                // Spend Summary Card
+                // KPI Cashflow Summary Banner
                 Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = Color.Transparent,
@@ -183,27 +199,45 @@ fun ExpenseLedgerDialog(
                         .background(
                             brush = Brush.horizontalGradient(
                                 colors = listOf(
-                                    ElectricIndigo.copy(alpha = 0.85f),
-                                    AuroraCyan.copy(alpha = 0.70f)
+                                    ElectricIndigo.copy(alpha = 0.90f),
+                                    AuroraCyan.copy(alpha = 0.75f)
                                 )
                             ),
                             shape = RoundedCornerShape(20.dp)
                         )
                 ) {
-                    Column(modifier = Modifier.padding(18.dp)) {
+                    Column(modifier = Modifier.padding(16.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "Net Out-of-Pocket Spend",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = Color.White.copy(alpha = 0.85f)
+                                    )
+                                    if (summary.isFullyOffset) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = Color(0xFF00E676)
+                                        ) {
+                                            Text(
+                                                text = "100% Offset (₹0 Net) 🎉",
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.Black
+                                                ),
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
                                 Text(
-                                    text = if (selectedCategoryFilter != null) "Filtered Spend (${selectedCategoryFilter!!.displayName})" else "Total Spend",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = Color.White.copy(alpha = 0.85f)
-                                )
-                                Text(
-                                    text = summary.formattedTotal,
+                                    text = summary.formattedNetSpend,
                                     style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
                                     color = Color.White
                                 )
@@ -214,7 +248,7 @@ fun ExpenseLedgerDialog(
                                 color = Color.Black.copy(alpha = 0.35f)
                             ) {
                                 Text(
-                                    text = "${summary.totalReceiptsCount} Receipts",
+                                    text = "${summary.totalReceiptsCount} Records",
                                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                                     color = Color.White,
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
@@ -222,9 +256,74 @@ fun ExpenseLedgerDialog(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
-                        // Export Actions Row inside Card
+                        // Financial Breakdown Chips: Debits, Credits, Vouchers
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color.Black.copy(alpha = 0.25f),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    Text(
+                                        text = "Debited / Spent",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White.copy(alpha = 0.75f)
+                                    )
+                                    Text(
+                                        text = "-${ReceiptExpenseExtractor.formatCurrency(summary.totalDebits, summary.primaryCurrencySymbol)}",
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = Color(0xFFFF8A80)
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color.Black.copy(alpha = 0.25f),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    Text(
+                                        text = "Credited / Inflow",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White.copy(alpha = 0.75f)
+                                    )
+                                    Text(
+                                        text = "+${ReceiptExpenseExtractor.formatCurrency(summary.totalCredits, summary.primaryCurrencySymbol)}",
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = Color(0xFFB9F6CA)
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color.Black.copy(alpha = 0.25f),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    Text(
+                                        text = "Vouchers Saved",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White.copy(alpha = 0.75f)
+                                    )
+                                    Text(
+                                        text = "+${ReceiptExpenseExtractor.formatCurrency(summary.totalVouchersClaimed, summary.primaryCurrencySymbol)}",
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = Color(0xFFE040FB)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Export Actions Row
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -238,7 +337,7 @@ fun ExpenseLedgerDialog(
                                             val uri = ReceiptExpenseExtractor.saveCsvToDownloads(context, csvText)
                                             isExporting = false
                                             if (uri != null) {
-                                                Toast.makeText(context, "CSV saved to Downloads", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(context, "Advanced CSV saved to Downloads", Toast.LENGTH_SHORT).show()
                                                 ReceiptExpenseExtractor.shareCsv(context, uri)
                                             } else {
                                                 Toast.makeText(context, "Failed to save CSV", Toast.LENGTH_SHORT).show()
@@ -270,9 +369,9 @@ fun ExpenseLedgerDialog(
                                         val sendIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                                             type = "application/json"
                                             putExtra(android.content.Intent.EXTRA_TEXT, jsonText)
-                                            putExtra(android.content.Intent.EXTRA_SUBJECT, "ScreenArc_Expenses.json")
+                                            putExtra(android.content.Intent.EXTRA_SUBJECT, "ScreenArc_Ledger.json")
                                         }
-                                        val chooser = android.content.Intent.createChooser(sendIntent, "Export Expenses JSON").apply {
+                                        val chooser = android.content.Intent.createChooser(sendIntent, "Export Ledger JSON").apply {
                                             if (context !is android.app.Activity) addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                                         }
                                         context.startActivity(chooser)
@@ -292,38 +391,82 @@ fun ExpenseLedgerDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // Category Filter Chips Row
+                // Transaction Type Filter Row
                 LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     item {
                         FilterChip(
-                            selected = selectedCategoryFilter == null,
-                            onClick = { selectedCategoryFilter = null },
-                            label = { Text("All (${expenses.size})") }
+                            selected = selectedTypeFilter == null,
+                            onClick = { selectedTypeFilter = null },
+                            label = { Text("All Types (${expenses.size})") }
                         )
                     }
-                    val availableCategories = ExpenseCategory.values().filter { cat ->
-                        expenses.any { it.category == cat }
-                    }
-                    items(availableCategories) { cat ->
-                        val count = expenses.count { it.category == cat }
+                    item {
+                        val count = expenses.count { it.transactionType == TransactionType.DEBIT }
                         FilterChip(
-                            selected = selectedCategoryFilter == cat,
+                            selected = selectedTypeFilter == TransactionType.DEBIT,
                             onClick = {
-                                selectedCategoryFilter = if (selectedCategoryFilter == cat) null else cat
+                                selectedTypeFilter = if (selectedTypeFilter == TransactionType.DEBIT) null else TransactionType.DEBIT
                             },
-                            label = { Text("${cat.displayName} ($count)") }
+                            label = { Text("Debits / Spent ($count)") }
                         )
+                    }
+                    item {
+                        val count = expenses.count { it.transactionType == TransactionType.CREDIT || it.transactionType == TransactionType.REFUND }
+                        FilterChip(
+                            selected = selectedTypeFilter == TransactionType.CREDIT,
+                            onClick = {
+                                selectedTypeFilter = if (selectedTypeFilter == TransactionType.CREDIT) null else TransactionType.CREDIT
+                            },
+                            label = { Text("Credits / Refunds ($count)") }
+                        )
+                    }
+                    item {
+                        val count = expenses.count { it.transactionType == TransactionType.VOUCHER_CLAIM }
+                        FilterChip(
+                            selected = selectedTypeFilter == TransactionType.VOUCHER_CLAIM,
+                            onClick = {
+                                selectedTypeFilter = if (selectedTypeFilter == TransactionType.VOUCHER_CLAIM) null else TransactionType.VOUCHER_CLAIM
+                            },
+                            label = { Text("Vouchers & Rewards ($count)") }
+                        )
+                    }
+                }
+
+                // App-Specific Filter Chips
+                if (availableApps.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        item {
+                            FilterChip(
+                                selected = selectedAppFilter == null,
+                                onClick = { selectedAppFilter = null },
+                                label = { Text("All Apps") }
+                            )
+                        }
+                        items(availableApps) { appName ->
+                            val count = expenses.count { it.sourceApp == appName }
+                            FilterChip(
+                                selected = selectedAppFilter == appName,
+                                onClick = {
+                                    selectedAppFilter = if (selectedAppFilter == appName) null else appName
+                                },
+                                label = { Text("$appName ($count)") }
+                            )
+                        }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Expenses List
+                // Records List
                 if (filteredExpenses.isEmpty()) {
                     Box(
                         modifier = Modifier
@@ -332,7 +475,7 @@ fun ExpenseLedgerDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "No receipt screenshots found.",
+                            text = "No matching financial screenshots found.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -343,10 +486,10 @@ fun ExpenseLedgerDialog(
                             .fillMaxWidth()
                             .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(vertical = 6.dp)
+                        contentPadding = PaddingValues(vertical = 4.dp)
                     ) {
                         items(filteredExpenses, key = { it.screenshotUri }) { item ->
-                            ExpenseItemRow(
+                            AdvancedExpenseItemRow(
                                 item = item,
                                 onClick = { onOpenScreenshot?.invoke(item.screenshotUri) }
                             )
@@ -359,10 +502,31 @@ fun ExpenseLedgerDialog(
 }
 
 @Composable
-private fun ExpenseItemRow(
+private fun AdvancedExpenseItemRow(
     item: ExpenseItem,
     onClick: () -> Unit
 ) {
+    val isDebit = item.transactionType == TransactionType.DEBIT
+    val isVoucher = item.transactionType == TransactionType.VOUCHER_CLAIM
+
+    val amountColor = when (item.transactionType) {
+        TransactionType.DEBIT -> MaterialTheme.colorScheme.error
+        TransactionType.CREDIT, TransactionType.REFUND -> Color(0xFF00C853)
+        TransactionType.VOUCHER_CLAIM -> Color(0xFFAB47BC)
+    }
+
+    val typeBadgeColor = when (item.transactionType) {
+        TransactionType.DEBIT -> Color(0xFFFF5252).copy(alpha = 0.15f)
+        TransactionType.CREDIT, TransactionType.REFUND -> Color(0xFF00E676).copy(alpha = 0.15f)
+        TransactionType.VOUCHER_CLAIM -> Color(0xFFBA68C8).copy(alpha = 0.15f)
+    }
+
+    val typeTextColor = when (item.transactionType) {
+        TransactionType.DEBIT -> Color(0xFFFF5252)
+        TransactionType.CREDIT, TransactionType.REFUND -> Color(0xFF00C853)
+        TransactionType.VOUCHER_CLAIM -> Color(0xFF8E24AA)
+    }
+
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -381,7 +545,7 @@ private fun ExpenseItemRow(
             Surface(
                 shape = RoundedCornerShape(10.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.size(52.dp)
+                modifier = Modifier.size(54.dp)
             ) {
                 AsyncImage(
                     model = item.screenshotUri,
@@ -393,53 +557,102 @@ private fun ExpenseItemRow(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            // Merchant, Date, Category
+            // Details
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = item.merchantName,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = item.merchantName,
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Type Badge
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = typeBadgeColor
+                    ) {
+                        Text(
+                            text = item.transactionType.displayName,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                            color = typeTextColor,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 2.dp)
+                ) {
                     Text(
                         text = item.dateString ?: "Recent",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    if (item.paymentMethod != null) {
+                    if (item.sourceApp != null) {
                         Text(
-                            text = " • ${item.paymentMethod}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = " • via ${item.sourceApp}",
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
 
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                // In-receipt Voucher Offset callout if applicable
+                if (item.voucherOrDiscountOffset > 0.0) {
+                    Text(
+                        text = "Voucher offset: -${ReceiptExpenseExtractor.formatCurrency(item.voucherOrDiscountOffset, item.currencySymbol)} (Net: ${ReceiptExpenseExtractor.formatCurrency(item.netCashflowImpact, item.currencySymbol)})",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                        color = Color(0xFF00B0FF),
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.padding(top = 4.dp)
                 ) {
-                    Text(
-                        text = item.category.displayName,
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                    ) {
+                        Text(
+                            text = item.category.displayName,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    if (item.isReimbursable) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFFF9800).copy(alpha = 0.2f)
+                        ) {
+                            Text(
+                                text = "Reimbursable",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                color = Color(0xFFFF9800),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            // Amount
+            // Amount Column
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = item.formattedAmount,
+                    text = "${item.transactionType.sign}${item.formattedAmount}",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
-                    color = MaterialTheme.colorScheme.primary
+                    color = amountColor
                 )
                 if (item.transactionId != null) {
                     Text(

@@ -1,6 +1,7 @@
 package com.screenarc.app.util
 
 import com.screenarc.app.model.ExpenseCategory
+import com.screenarc.app.model.TransactionType
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -42,6 +43,7 @@ class ReceiptExpenseExtractorTest {
         assertEquals(ExpenseCategory.SHOPPING, item.category)
         assertEquals("112-9876543-1234567", item.transactionId)
         assertEquals("Visa", item.paymentMethod)
+        assertEquals(TransactionType.DEBIT, item.transactionType)
         assertNotNull(item.dateString)
     }
 
@@ -72,6 +74,7 @@ class ReceiptExpenseExtractorTest {
         assertEquals("₹485", item.formattedAmount)
         assertEquals(ExpenseCategory.TRAVEL_AND_TRANSPORT, item.category)
         assertEquals("upi-87654321", item.transactionId)
+        assertEquals("Google Pay", item.sourceApp)
     }
 
     @Test
@@ -99,6 +102,7 @@ class ReceiptExpenseExtractorTest {
         assertEquals(610.0, item.amount, 0.001)
         assertEquals(ExpenseCategory.FOOD_AND_DINING, item.category)
         assertEquals("₹610", item.formattedAmount)
+        assertEquals("PhonePe", item.sourceApp)
     }
 
     @Test
@@ -169,6 +173,104 @@ class ReceiptExpenseExtractorTest {
     }
 
     @Test
+    fun testVoucherOffsetAndNetZeroSpend() {
+        // 1. Bill payment of ₹1,000
+        val billText = """
+            Google Pay
+            Payment to BESCOM Electricity
+            Bill Payment Successful
+            Paid Amount: ₹1000.00
+            Txn ID: gpay-99887766
+            Date: 2026-11-03
+        """.trimIndent()
+
+        val billItem = ReceiptExpenseExtractor.extractExpense(
+            rawText = billText,
+            screenshotId = 2001L,
+            screenshotUri = "uri_bill",
+            fileName = "gpay_bescom_bill.png"
+        )
+        assertNotNull(billItem)
+        assertEquals(1000.0, billItem!!.amount, 0.001)
+        assertEquals(TransactionType.DEBIT, billItem.transactionType)
+        assertEquals("Google Pay", billItem.sourceApp)
+
+        // 2. Voucher Claim of ₹1,000 on Amazon Pay
+        val voucherText = """
+            Amazon Pay Rewards
+            Congratulations!
+            Voucher Claimed: ₹1000
+            Gift Card Redeemed Successfully
+            Voucher Code: AMZN-SAVE-1000
+            Date: 2026-11-03
+        """.trimIndent()
+
+        val voucherItem = ReceiptExpenseExtractor.extractExpense(
+            rawText = voucherText,
+            screenshotId = 2002L,
+            screenshotUri = "uri_voucher",
+            fileName = "amazon_voucher_claim.png"
+        )
+        assertNotNull(voucherItem)
+        assertEquals(1000.0, voucherItem!!.amount, 0.001)
+        assertEquals(TransactionType.VOUCHER_CLAIM, voucherItem.transactionType)
+        assertEquals("Amazon Pay", voucherItem.sourceApp)
+
+        // 3. Compute Summary with offsetting: ₹1,000 Debit - ₹1,000 Voucher Claim = Net ₹0.00!
+        val summary = ReceiptExpenseExtractor.computeSummary(listOf(billItem, voucherItem))
+        assertEquals(1000.0, summary.totalDebits, 0.001)
+        assertEquals(1000.0, summary.totalVouchersClaimed, 0.001)
+        assertEquals(0.0, summary.netSpend, 0.001)
+        assertTrue("Net spend must be fully offset to zero", summary.isFullyOffset)
+    }
+
+    @Test
+    fun testInReceiptVoucherDeduction() {
+        val invoiceText = """
+            Flipkart Internet Pvt Ltd
+            Order Total: ₹1200.00
+            Coupon Discount Applied: -₹200.00
+            Amount Paid: ₹1000.00
+            Paid via PhonePe UPI
+        """.trimIndent()
+
+        val item = ReceiptExpenseExtractor.extractExpense(
+            rawText = invoiceText,
+            screenshotId = 3001L,
+            screenshotUri = "uri_invoice",
+            fileName = "flipkart_order.png"
+        )
+        assertNotNull(item)
+        assertEquals(200.0, item!!.voucherOrDiscountOffset, 0.001)
+        assertEquals(800.0, item.netCashflowImpact, 0.001)
+        assertEquals("PhonePe", item.sourceApp)
+    }
+
+    @Test
+    fun testCreditAndRefundDetection() {
+        val refundText = """
+            Paytm Wallet
+            Refund Processed Successfully
+            Credited Amount: ₹450.00
+            Refunded to Bank Account
+            Ref No: utr-77665544
+            Date: 2026-11-02
+        """.trimIndent()
+
+        val item = ReceiptExpenseExtractor.extractExpense(
+            rawText = refundText,
+            screenshotId = 4001L,
+            screenshotUri = "uri_refund",
+            fileName = "paytm_refund.png"
+        )
+        assertNotNull(item)
+        assertEquals(TransactionType.REFUND, item!!.transactionType)
+        assertEquals(450.0, item.amount, 0.001)
+        assertEquals(-450.0, item.netCashflowImpact, 0.001)
+        assertEquals("Paytm", item.sourceApp)
+    }
+
+    @Test
     fun testComputeSummaryAggregation() {
         val expenses = listOf(
             ReceiptExpenseExtractor.extractExpense(
@@ -212,7 +314,7 @@ class ReceiptExpenseExtractorTest {
         )
 
         val csv = ReceiptExpenseExtractor.exportToCsv(expenses)
-        assertTrue(csv.contains("Date,Merchant,Category,Amount,Currency,Formatted Amount,Transaction ID,Payment Method,File Name,Screenshot URI"))
+        assertTrue(csv.contains("Date,Merchant / Note,Type,Source App,Category,Gross Amount,Voucher / Discount Offset,Net Cashflow Impact,Currency,Transaction ID,Payment Method,Reimbursable,File Name,Screenshot URI"))
         assertTrue(csv.contains("Amazon"))
         assertTrue(csv.contains("100.0"))
         assertTrue(csv.contains("USD"))
@@ -232,8 +334,8 @@ class ReceiptExpenseExtractorTest {
         val jsonString = ReceiptExpenseExtractor.exportToJson(expenses)
         val json = JSONObject(jsonString)
         assertEquals("ScreenArc", json.getString("app"))
-        assertEquals("SmartExpenseLedger", json.getString("feature"))
+        assertEquals("AdvancedSmartExpenseLedger", json.getString("feature"))
         assertEquals(1, json.getInt("totalCount"))
-        assertEquals(17.99, json.getDouble("totalAmount"), 0.001)
+        assertEquals(17.99, json.getDouble("totalDebits"), 0.001)
     }
 }

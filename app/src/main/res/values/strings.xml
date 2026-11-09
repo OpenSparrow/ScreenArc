@@ -6,4 +6,42 @@
     <string name="service_notification_text">Listening for screenshots to organize into categories</string>
     <string name="action_stop">Stop Service</string>
     <string name="action_test_screenshot">Test Overlay</string>
+
+    <!-- Stitch Feature Strings -->
+    <string name="stitch_title">Stitch Screenshots</string>
+    <string name="stitch_action_stitch">Stitch</string>
+    <string name="stitch_mode_auto">Auto Overlap</string>
+    <string name="stitch_mode_manual">Manual</string>
+    <string name="stitch_crop_status_bar">Crop Status Bar</string>
+    <string name="stitch_crop_nav_bar">Crop Navigation Bar</string>
+    <string name="stitch_format_png">PNG (Lossless)</string>
+    <string name="stitch_format_jpeg">JPEG</string>
+    <string name="stitch_quality_label">Quality: %1$d%%</string>
+    <string name="stitch_gap_label">Gap: %1$d px</string>
+    <string name="stitch_analyzing">Detecting overlap…</string>
+    <string name="stitch_rendering">Rendering stitched image…</string>
+    <string name="stitch_saving">Saving to Pictures/Screenshots…</string>
+    <string name="stitch_save_action">Save Stitched</string>
+    <string name="stitch_saved_title">Stitched Image Saved</string>
+    <string name="stitch_saved_subtitle">Saved %1$d × %2$d px to Screenshots</string>
+    <string name="stitch_action_share">Share</string>
+    <string name="stitch_action_edit">Edit &amp; Redact</string>
+    <string name="stitch_action_delete_stitched">Delete Stitched</string>
+    <string name="stitch_action_delete_originals">Delete Originals</string>
+    <string name="stitch_dialog_delete_originals_title">Delete Original Screenshots?</string>
+    <string name="stitch_dialog_delete_originals_desc">This will permanently delete the %1$d source screenshots from storage. Your combined stitched image will be preserved.</string>
+    <string name="stitch_dialog_confirm_delete">Delete</string>
+    <string name="stitch_dialog_cancel">Cancel</string>
+    <string name="stitch_no_overlap">No overlap found</string>
+    <string name="stitch_overlap_detected">Overlap: %1$d px</string>
+    <string name="stitch_seam_adjustment">Seam %1$d Adjustment: %2$d px</string>
+    <string name="stitch_error_min_images">Please select at least 2 screenshots to stitch.</string>
+    <string name="stitch_error_max_images">Maximum %1$d screenshots can be stitched at once.</string>
+    <string name="stitch_error_max_height">Stitched height exceeds safe limits (%1$d px). Please reduce the number of images.</string>
+    <string name="stitch_error_generic">Failed to stitch screenshots: %1$s</string>
+    <string name="stitch_delete_originals_success">Deleted %1$d original screenshots.</string>
+    <string name="stitch_reorder_hint">Drag or use arrows to change sequence</string>
+    <string name="stitch_remove_image">Remove</string>
+    <string name="stitch_preview_header">Stitched Preview</string>
+    <string name="stitch_seams_header">Seams &amp; Alignments</string>
 </resources>

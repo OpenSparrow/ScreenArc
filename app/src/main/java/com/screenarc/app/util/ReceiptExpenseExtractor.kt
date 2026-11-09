@@ -12,14 +12,15 @@ import com.screenarc.app.model.ExpenseCategory
 import com.screenarc.app.model.ExpenseItem
 import com.screenarc.app.model.ExpenseSummary
 import com.screenarc.app.model.ScreenshotUiModel
+import com.screenarc.app.model.TransactionType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 
 object ReceiptExpenseExtractor {
     private const val TAG = "ReceiptExpenseExtractor"
@@ -51,7 +52,8 @@ object ReceiptExpenseExtractor {
 
     private val BILLS_MERCHANTS = listOf(
         "at&t", "verizon", "t-mobile", "airtel", "jio", "vodafone", "pg&e",
-        "electricity", "water bill", "gas bill", "broadband", "spectrum", "comcast", "xfinity"
+        "electricity", "water bill", "gas bill", "broadband", "spectrum", "comcast", "xfinity",
+        "bescom", "tneb", "cesc", "mahavitaran", "piped gas"
     )
 
     private val TECH_MERCHANTS = listOf(
@@ -64,14 +66,19 @@ object ReceiptExpenseExtractor {
         "bigbasket", "safeway", "aldi", "sprouts", "tesco", "carrefour"
     )
 
-    // Regex for prominent "Total" / "Amount Paid" values
+    // Regex for prominent "Total" / "Amount Paid" / "Credited" values
     private val TOTAL_AMOUNT_REGEX = Regex(
-        "(?i)(?:total(?:\\s+amount)?|grand\\s+total|amount\\s+paid|paid\\s+amount|net\\s+amount|total\\s+payable|order\\s+total|amount\\s+debited|payment\\s+successful|billed\\s+amount|total)\\s*[:=-]?\\s*([₹\\$€£¥]|INR|USD|EUR|GBP|Rs\\.?|CAD|AUD)?\\s*([0-9]{1,3}(?:[,\\s][0-9]{3})*(?:\\.[0-9]{1,2})?|[0-9]+(?:\\.[0-9]{1,2})?)"
+        "(?i)(?:total(?:\\s+amount)?|grand\\s+total|amount\\s+paid|paid\\s+amount|net\\s+amount|total\\s+payable|order\\s+total|amount\\s+debited|debited\\s+amount|credited\\s+amount|amount\\s+credited|payment\\s+successful|billed\\s+amount|voucher\\s+amount|voucher\\s+value|cashback\\s+amount|voucher\\s+for|total)\\s*[:=-]?\\s*([₹\$€£¥]|INR|USD|EUR|GBP|Rs\\.?|CAD|AUD)?\\s*([0-9]{1,3}(?:,[0-9]{3})+(?:\\.[0-9]{1,2})?|[0-9]+(?:\\.[0-9]{1,2})?)"
     )
 
     // Standalone currency + amount pattern (e.g. ₹1,499.00 or $49.99)
     private val CURRENCY_AMOUNT_REGEX = Regex(
-        "([₹\\$€£¥]|INR|USD|EUR|GBP|Rs\\.?)\\s*([0-9]{1,3}(?:[,\\s][0-9]{3})*(?:\\.[0-9]{1,2})?|[0-9]+(?:\\.[0-9]{1,2})?)"
+        "([₹\$€£¥]|INR|USD|EUR|GBP|Rs\\.?)\\s*([0-9]{1,3}(?:,[0-9]{3})+(?:\\.[0-9]{1,2})?|[0-9]+(?:\\.[0-9]{1,2})?)"
+    )
+
+    // Voucher / Discount deduction regex inside an invoice or receipt
+    private val IN_RECEIPT_VOUCHER_REGEX = Regex(
+        "(?i)(?:voucher(?:\\s+discount)?|coupon(?:\\s+discount)?(?:\\s+applied)?|promo\\s+code|discount(?:\\s+applied)?|gift\\s+card(?:\\s+applied)?|reward\\s+points|points\\s+redeemed)\\s*[:=-]?\\s*[-–]?\\s*([₹\$€£¥]|INR|USD|EUR|GBP|Rs\\.?)?\\s*([0-9]{1,3}(?:,[0-9]{3})+(?:\\.[0-9]{1,2})?|[0-9]+(?:\\.[0-9]{1,2})?)"
     )
 
     // Transaction / Reference ID pattern
@@ -81,7 +88,7 @@ object ReceiptExpenseExtractor {
 
     // Payment method pattern
     private val PAYMENT_METHOD_REGEX = Regex(
-        "(?i)\\b(visa|mastercard|amex|american express|discover|apple pay|google pay|gpay|phonepe|paytm|upi|cash|paypal|credit card|debit card)\\b"
+        "(?i)\\b(visa|mastercard|amex|american express|discover|apple pay|google pay|gpay|phonepe|paytm|upi|cash|paypal|credit card|debit card|voucher|gift card|wallet)\\b"
     )
 
     // Common Date formats in receipts
@@ -94,7 +101,7 @@ object ReceiptExpenseExtractor {
 
     /**
      * Extracts structured expense data from a [ScreenshotUiModel].
-     * Returns null if the screenshot text does not match financial / receipt criteria.
+     * Returns null if the screenshot text does not match financial / transaction criteria.
      */
     fun extractExpense(screenshot: ScreenshotUiModel): ExpenseItem? {
         val text = screenshot.recognizedText ?: return null
@@ -118,10 +125,16 @@ object ReceiptExpenseExtractor {
         if (rawText.isBlank()) return null
         val lowerText = rawText.lowercase()
 
-        // Fast reject non-receipt screens if there are no financial indicators
-        val hasReceiptKeywords = lowerText.contains("total") ||
+        // Fast reject non-financial screens if there are no financial indicators
+        val hasFinancialKeywords = lowerText.contains("total") ||
                 lowerText.contains("amount") ||
                 lowerText.contains("paid") ||
+                lowerText.contains("debited") ||
+                lowerText.contains("credited") ||
+                lowerText.contains("received") ||
+                lowerText.contains("voucher") ||
+                lowerText.contains("cashback") ||
+                lowerText.contains("refund") ||
                 lowerText.contains("invoice") ||
                 lowerText.contains("receipt") ||
                 lowerText.contains("order") ||
@@ -134,26 +147,35 @@ object ReceiptExpenseExtractor {
                 lowerText.contains("inr") ||
                 lowerText.contains("usd")
 
-        if (!hasReceiptKeywords) return null
+        if (!hasFinancialKeywords) return null
 
-        // 1. Amount and Currency Extraction
+        // 1. Transaction Type Detection (Credit vs Debit vs Voucher vs Refund)
+        val transactionType = detectTransactionType(lowerText)
+
+        // 2. Amount and Currency Extraction
         val (amount, currencySymbol, currencyCode) = parseAmountAndCurrency(rawText) ?: return null
         if (amount <= 0.0) return null
 
-        // 2. Merchant Extraction
-        val merchant = extractMerchant(rawText, fileName)
+        // 3. In-Receipt Voucher / Discount Offset Detection
+        val voucherOffset = parseInReceiptVoucherOffset(rawText, totalAmount = amount)
 
-        // 3. Category Detection
-        val category = inferCategory(merchant, lowerText)
+        // 4. Source Application / Provider Identification
+        val sourceApp = detectSourceApp(rawText, fileName)
 
-        // 4. Date Extraction
+        // 5. Merchant Extraction
+        val merchant = extractMerchant(rawText, fileName, sourceApp, transactionType)
+
+        // 6. Category Detection
+        val category = inferCategory(merchant, lowerText, transactionType)
+
+        // 7. Date Extraction
         val (dateStr, dateTimestamp) = parseDate(rawText)
 
-        // 5. Transaction / Reference ID
+        // 8. Transaction / Reference ID
         val transactionId = TRANSACTION_ID_REGEX.find(rawText)?.groupValues?.get(1)?.trim()
 
-        // 6. Payment Method
-        val paymentMethod = PAYMENT_METHOD_REGEX.find(rawText)?.value?.trim()?.replaceFirstChar {
+        // 9. Payment Method
+        val paymentMethod = (PAYMENT_METHOD_REGEX.find(rawText)?.value?.trim() ?: sourceApp)?.replaceFirstChar {
             if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString()
         }
 
@@ -181,15 +203,115 @@ object ReceiptExpenseExtractor {
             category = category,
             transactionId = transactionId,
             paymentMethod = paymentMethod,
-            rawTextSnippet = snippet
+            rawTextSnippet = snippet,
+            transactionType = transactionType,
+            sourceApp = sourceApp,
+            voucherOrDiscountOffset = voucherOffset,
+            isReimbursable = category == ExpenseCategory.TRAVEL_AND_TRANSPORT || category == ExpenseCategory.BILLS_AND_UTILITIES
         )
     }
 
+    /**
+     * Determines whether transaction is Debit, Credit, Voucher Claim, or Refund.
+     */
+    fun detectTransactionType(lowerText: String): TransactionType {
+        // 1. Check Refund indicators
+        if (lowerText.contains("refund processed") ||
+            lowerText.contains("refund initiated") ||
+            lowerText.contains("refund of") ||
+            lowerText.contains("refunded to") ||
+            lowerText.contains("amount refunded") ||
+            lowerText.contains("reversal of")
+        ) {
+            return TransactionType.REFUND
+        }
+
+        // 2. Check Voucher Claim / Reward / Gift Card indicators
+        if (lowerText.contains("voucher claimed") ||
+            lowerText.contains("claim voucher") ||
+            lowerText.contains("voucher for") ||
+            lowerText.contains("gift card added") ||
+            lowerText.contains("gift card redeemed") ||
+            lowerText.contains("scratch card won") ||
+            lowerText.contains("reward claimed") ||
+            lowerText.contains("reward unlocked") ||
+            lowerText.contains("coupon code claimed") ||
+            lowerText.contains("cashback won")
+        ) {
+            return TransactionType.VOUCHER_CLAIM
+        }
+
+        // 3. Check General Inflow / Credit indicators
+        if (lowerText.contains("credited to") ||
+            lowerText.contains("credited into") ||
+            lowerText.contains("money received") ||
+            lowerText.contains("received from") ||
+            lowerText.contains("payment received") ||
+            lowerText.contains("cashback received") ||
+            lowerText.contains("cashback credited") ||
+            lowerText.contains("salary credited") ||
+            lowerText.contains("deposited to") ||
+            (lowerText.contains("credited") && !lowerText.contains("debited"))
+        ) {
+            return TransactionType.CREDIT
+        }
+
+        // Default: Debit / Expense (Paid to, Order Placed, Bill Payment, Debited, etc.)
+        return TransactionType.DEBIT
+    }
+
+    /**
+     * Identifies the source fintech / banking application or wallet from screenshot content.
+     */
+    fun detectSourceApp(text: String, fileName: String): String? {
+        val lower = (text + " " + fileName).lowercase()
+        return when {
+            lower.contains("google pay") || lower.contains("gpay") -> "Google Pay"
+            lower.contains("phonepe") -> "PhonePe"
+            lower.contains("paytm") -> "Paytm"
+            lower.contains("cred") -> "CRED"
+            lower.contains("amazon pay") || (lower.contains("amazon") && lower.contains("pay")) -> "Amazon Pay"
+            lower.contains("bhim") || lower.contains("upi") && lower.contains("npci") -> "BHIM UPI"
+            lower.contains("apple pay") || lower.contains("apple wallet") -> "Apple Pay"
+            lower.contains("paypal") -> "PayPal"
+            lower.contains("hdfc bank") || lower.contains("hdfc") -> "HDFC Bank"
+            lower.contains("sbi") || lower.contains("yono") || lower.contains("state bank") -> "SBI"
+            lower.contains("icici") || lower.contains("imobile") -> "ICICI Bank"
+            lower.contains("axis bank") || lower.contains("axis") -> "Axis Bank"
+            lower.contains("chase") -> "Chase"
+            lower.contains("american express") || lower.contains("amex") -> "American Express"
+            lower.contains("swiggy") -> "Swiggy"
+            lower.contains("zomato") -> "Zomato"
+            lower.contains("uber") -> "Uber"
+            lower.contains("flipkart") -> "Flipkart"
+            lower.contains("blinkit") -> "Blinkit"
+            lower.contains("zepto") -> "Zepto"
+            else -> null
+        }
+    }
+
+    /**
+     * Checks if a single invoice/bill screenshot already contains a voucher/coupon deduction.
+     * (e.g. Total: 1000, Voucher: -1000).
+     */
+    private fun parseInReceiptVoucherOffset(text: String, totalAmount: Double): Double {
+        val matches = IN_RECEIPT_VOUCHER_REGEX.findAll(text).toList()
+        for (match in matches) {
+            val rawAmountStr = match.groupValues[2].replace(",", "").replace(" ", "").trim()
+            val parsed = rawAmountStr.toDoubleOrNull()
+            if (parsed != null && parsed > 0.0) {
+                // If voucher equals total or is a deduction, cap at totalAmount
+                return if (parsed >= totalAmount) totalAmount else parsed
+            }
+        }
+        return 0.0
+    }
+
     private fun parseAmountAndCurrency(text: String): Triple<Double, String, String>? {
-        // Try matching explicit Total keyword lines first
+        // Try matching explicit Total / Credited / Debited keyword lines first
         val totalMatches = TOTAL_AMOUNT_REGEX.findAll(text).toList()
         if (totalMatches.isNotEmpty()) {
-            // Find highest valid total match
+            // Find highest valid match from the end
             for (match in totalMatches.reversed()) {
                 val rawSymbolOrCode = match.groupValues[1].trim()
                 val rawAmountStr = match.groupValues[2].replace(",", "").replace(" ", "").trim()
@@ -204,7 +326,6 @@ object ReceiptExpenseExtractor {
         // Fallback: match standalone currency + amount
         val currencyMatches = CURRENCY_AMOUNT_REGEX.findAll(text).toList()
         if (currencyMatches.isNotEmpty()) {
-            // Pick the largest amount found (standard for receipts: total is largest)
             var maxAmount = 0.0
             var bestSymbol = "$"
             var bestCode = "USD"
@@ -238,7 +359,6 @@ object ReceiptExpenseExtractor {
             lower.contains("cad") -> "CA$" to "CAD"
             lower.contains("aud") -> "A$" to "AUD"
             else -> {
-                // Infer from full text symbols
                 if (fullText.contains("₹")) "₹" to "INR"
                 else if (fullText.contains("€")) "€" to "EUR"
                 else if (fullText.contains("£")) "£" to "GBP"
@@ -247,8 +367,23 @@ object ReceiptExpenseExtractor {
         }
     }
 
-    private fun extractMerchant(text: String, fileName: String): String {
+    private fun extractMerchant(
+        text: String,
+        fileName: String,
+        sourceApp: String?,
+        transactionType: TransactionType
+    ): String {
         val lower = text.lowercase()
+
+        // If voucher claim, check for voucher brand or reward title
+        if (transactionType == TransactionType.VOUCHER_CLAIM) {
+            val voucherBrand = listOf("amazon", "swiggy", "zomato", "myntra", "flipkart", "uber", "starbucks", "dominos")
+                .firstOrNull { lower.contains(it) }
+            if (voucherBrand != null) {
+                return "${capitalizeWords(voucherBrand)} Voucher"
+            }
+            return if (sourceApp != null) "$sourceApp Reward" else "Voucher Claim"
+        }
 
         // 1. Check known merchants
         val allMerchants = (FOOD_MERCHANTS + TRAVEL_MERCHANTS + SHOPPING_MERCHANTS +
@@ -260,9 +395,9 @@ object ReceiptExpenseExtractor {
             }
         }
 
-        // 2. Check "Paid to [Name]" or "To: [Name]" or "Merchant: [Name]"
-        val paidToRegex = Regex("(?i)(?:paid\\s+to|payment\\s+to|to\\s*:|merchant\\s*:|billed\\s+by\\s*:)\\s*([A-Za-z0-9&.\\s'-]{2,30})")
-        val match = paidToRegex.find(text)
+        // 2. Check "Paid to [Name]" or "Received from [Name]"
+        val contactRegex = Regex("(?i)(?:paid\\s+to|payment\\s+to|to\\s*:|received\\s+from|from\\s*:|merchant\\s*:|billed\\s+by\\s*:)\\s*([A-Za-z0-9&.\\s'-]{2,30})")
+        val match = contactRegex.find(text)
         if (match != null) {
             val candidate = match.groupValues[1].lines().firstOrNull()?.trim()
             if (!candidate.isNullOrBlank() && candidate.length in 3..28) {
@@ -275,7 +410,7 @@ object ReceiptExpenseExtractor {
             .map { it.trim() }
             .filter { line ->
                 line.length in 3..32 &&
-                        !line.matches(Regex(".*(?:total|receipt|invoice|order|tax|date|thank you|welcome|subtotal|balance).*$", RegexOption.IGNORE_CASE)) &&
+                        !line.matches(Regex(".*(?:total|receipt|invoice|order|tax|date|thank you|welcome|subtotal|balance|credited|debited).*$", RegexOption.IGNORE_CASE)) &&
                         line.any { it.isLetter() }
             }
 
@@ -290,7 +425,15 @@ object ReceiptExpenseExtractor {
         return capitalizeWords(cleanName)
     }
 
-    private fun inferCategory(merchant: String, lowerText: String): ExpenseCategory {
+    private fun inferCategory(
+        merchant: String,
+        lowerText: String,
+        transactionType: TransactionType
+    ): ExpenseCategory {
+        if (transactionType == TransactionType.VOUCHER_CLAIM) {
+            return ExpenseCategory.SHOPPING
+        }
+
         val lowerMerchant = merchant.lowercase()
         return when {
             FOOD_MERCHANTS.any { lowerMerchant.contains(it) } ||
@@ -319,7 +462,8 @@ object ReceiptExpenseExtractor {
 
             BILLS_MERCHANTS.any { lowerMerchant.contains(it) } ||
                     lowerText.contains("electric") || lowerText.contains("utility") ||
-                    lowerText.contains("recharge") || lowerText.contains("telecom") ->
+                    lowerText.contains("recharge") || lowerText.contains("telecom") ||
+                    lowerText.contains("bill payment") ->
                 ExpenseCategory.BILLS_AND_UTILITIES
 
             TECH_MERCHANTS.any { lowerMerchant.contains(it) } ||
@@ -383,44 +527,80 @@ object ReceiptExpenseExtractor {
     }
 
     /**
-     * Aggregates expenses and computes statistics for dashboard presentation.
+     * Aggregates debits, credits, vouchers and calculates true Net Out-of-Pocket Cashflow.
+     * For example, a ₹1,000 bill debit + ₹1,000 voucher claim results in Net Spend: ₹0.
      */
     fun computeSummary(expenses: List<ExpenseItem>): ExpenseSummary {
-        val total = expenses.sumOf { it.amount }
+        val totalDebits = expenses
+            .filter { it.transactionType == TransactionType.DEBIT }
+            .sumOf { it.amount }
+
+        val totalCredits = expenses
+            .filter { it.transactionType == TransactionType.CREDIT || it.transactionType == TransactionType.REFUND }
+            .sumOf { it.amount }
+
+        val directVouchers = expenses
+            .filter { it.transactionType == TransactionType.VOUCHER_CLAIM }
+            .sumOf { it.amount }
+
+        val inReceiptVoucherOffsets = expenses.sumOf { it.voucherOrDiscountOffset }
+        val totalVouchers = directVouchers + inReceiptVoucherOffsets
+
+        // Net Out-of-Pocket Spend: Debits - Credits - Vouchers
+        val netSpend = totalDebits - totalCredits - totalVouchers
+        val isFullyOffset = totalDebits > 0.0 && abs(netSpend) < 0.01
+
         val primarySymbol = expenses.firstOrNull()?.currencySymbol ?: "$"
         val breakdown = expenses.groupBy { it.category }
             .mapValues { entry -> entry.value.sumOf { it.amount } }
 
+        // Source App Breakdown: Net balance per app
+        val appBreakdown = expenses.groupBy { it.sourceApp ?: "Other" }
+            .mapValues { entry ->
+                entry.value.sumOf { it.netCashflowImpact }
+            }
+
         return ExpenseSummary(
-            totalAmount = total,
-            formattedTotal = formatCurrency(total, primarySymbol),
+            totalAmount = totalDebits,
+            formattedTotal = formatCurrency(totalDebits, primarySymbol),
             primaryCurrencySymbol = primarySymbol,
             totalReceiptsCount = expenses.size,
-            categoryBreakdown = breakdown
+            categoryBreakdown = breakdown,
+            totalDebits = totalDebits,
+            totalCredits = totalCredits,
+            totalVouchersClaimed = totalVouchers,
+            netSpend = netSpend,
+            formattedNetSpend = formatCurrency(netSpend, primarySymbol),
+            sourceAppBreakdown = appBreakdown,
+            isFullyOffset = isFullyOffset
         )
     }
 
     /**
-     * Generates RFC 4180 compliant CSV content for spreadsheets (Excel, Google Sheets).
+     * Generates RFC 4180 compliant CSV content for spreadsheets with debits, credits, vouchers and net spend.
      */
     fun exportToCsv(expenses: List<ExpenseItem>): String {
         val sb = StringBuilder()
         // Header
-        sb.append("Date,Merchant,Category,Amount,Currency,Formatted Amount,Transaction ID,Payment Method,File Name,Screenshot URI\n")
+        sb.append("Date,Merchant / Note,Type,Source App,Category,Gross Amount,Voucher / Discount Offset,Net Cashflow Impact,Currency,Transaction ID,Payment Method,Reimbursable,File Name,Screenshot URI\n")
 
         for (item in expenses) {
             val date = escapeCsv(item.dateString ?: "N/A")
             val merchant = escapeCsv(item.merchantName)
+            val type = escapeCsv(item.transactionType.displayName)
+            val sourceApp = escapeCsv(item.sourceApp ?: "N/A")
             val category = escapeCsv(item.category.displayName)
             val amount = item.amount.toString()
+            val offset = item.voucherOrDiscountOffset.toString()
+            val netImpact = item.netCashflowImpact.toString()
             val currency = escapeCsv(item.currencyCode)
-            val formatted = escapeCsv(item.formattedAmount)
             val txnId = escapeCsv(item.transactionId ?: "")
             val method = escapeCsv(item.paymentMethod ?: "")
+            val reimbursable = if (item.isReimbursable) "Yes" else "No"
             val fileName = escapeCsv(item.fileName)
             val uri = escapeCsv(item.screenshotUri)
 
-            sb.append("$date,$merchant,$category,$amount,$currency,$formatted,$txnId,$method,$fileName,$uri\n")
+            sb.append("$date,$merchant,$type,$sourceApp,$category,$amount,$offset,$netImpact,$currency,$txnId,$method,$reimbursable,$fileName,$uri\n")
         }
         return sb.toString()
     }
@@ -438,12 +618,17 @@ object ReceiptExpenseExtractor {
      * Generates structured JSON representation for external bookkeeping or APIs.
      */
     fun exportToJson(expenses: List<ExpenseItem>): String {
+        val summary = computeSummary(expenses)
         val root = JSONObject()
         root.put("app", "ScreenArc")
-        root.put("feature", "SmartExpenseLedger")
+        root.put("feature", "AdvancedSmartExpenseLedger")
         root.put("exportedAt", System.currentTimeMillis())
         root.put("totalCount", expenses.size)
-        root.put("totalAmount", expenses.sumOf { it.amount })
+        root.put("totalDebits", summary.totalDebits)
+        root.put("totalCredits", summary.totalCredits)
+        root.put("totalVouchersClaimed", summary.totalVouchersClaimed)
+        root.put("netSpend", summary.netSpend)
+        root.put("isFullyOffset", summary.isFullyOffset)
 
         val array = JSONArray()
         for (item in expenses) {
@@ -452,7 +637,11 @@ object ReceiptExpenseExtractor {
                 put("screenshotUri", item.screenshotUri)
                 put("fileName", item.fileName)
                 put("merchant", item.merchantName)
+                put("transactionType", item.transactionType.name)
+                put("sourceApp", item.sourceApp ?: JSONObject.NULL)
                 put("amount", item.amount)
+                put("voucherOrDiscountOffset", item.voucherOrDiscountOffset)
+                put("netCashflowImpact", item.netCashflowImpact)
                 put("formattedAmount", item.formattedAmount)
                 put("currencySymbol", item.currencySymbol)
                 put("currencyCode", item.currencyCode)
@@ -462,6 +651,7 @@ object ReceiptExpenseExtractor {
                 put("categoryDisplayName", item.category.displayName)
                 put("transactionId", item.transactionId ?: JSONObject.NULL)
                 put("paymentMethod", item.paymentMethod ?: JSONObject.NULL)
+                put("isReimbursable", item.isReimbursable)
             }
             array.put(obj)
         }
@@ -475,7 +665,7 @@ object ReceiptExpenseExtractor {
     suspend fun saveCsvToDownloads(
         context: Context,
         csvContent: String,
-        fileName: String = "ScreenArc_Expenses_${System.currentTimeMillis()}.csv"
+        fileName: String = "ScreenArc_Advanced_Ledger_${System.currentTimeMillis()}.csv"
     ): Uri? = withContext(Dispatchers.IO) {
         try {
             val resolver = context.contentResolver
@@ -504,7 +694,7 @@ object ReceiptExpenseExtractor {
                 contentValues.put(MediaStore.Downloads.IS_PENDING, 0)
                 resolver.update(uri, contentValues, null, null)
             }
-            Log.d(TAG, "Saved expenses CSV to $uri")
+            Log.d(TAG, "Saved advanced ledger CSV to $uri")
             uri
         } catch (e: Exception) {
             Log.e(TAG, "Failed saving CSV to Downloads: ${e.message}", e)
@@ -519,10 +709,10 @@ object ReceiptExpenseExtractor {
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "text/csv"
             putExtra(Intent.EXTRA_STREAM, csvUri)
-            putExtra(Intent.EXTRA_SUBJECT, "ScreenArc Expense Report")
+            putExtra(Intent.EXTRA_SUBJECT, "ScreenArc Advanced Expense & Inflow Ledger")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        val chooser = Intent.createChooser(shareIntent, "Share Expense Report (CSV)").apply {
+        val chooser = Intent.createChooser(shareIntent, "Share Advanced Ledger (CSV)").apply {
             if (context !is android.app.Activity) {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }

@@ -549,6 +549,26 @@ fun ScreenshotsScreen(
                     }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        // Stitch Button (Enabled when >= 2 selected)
+                        if (uiState.selectedUris.size >= 2) {
+                            Button(
+                                onClick = {
+                                    val selectedUris = results.filter { uiState.selectedUris.contains(it.uri) }
+                                        .map { it.contentUri }
+                                    if (selectedUris.size >= 2) {
+                                        val intent = com.screenarc.app.stitch.ui.StitchActivity.newIntent(context, selectedUris)
+                                        context.startActivity(intent)
+                                    }
+                                },
+                                shape = RoundedCornerShape(14.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Default.Layers, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Stitch", fontSize = 12.sp)
+                            }
+                        }
+
                         // Bulk Move Button
                         Button(
                             onClick = { showBulkMoveDialog = true },

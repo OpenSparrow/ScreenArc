@@ -495,7 +495,7 @@ fun HomeScreen(
                                         }
                                     }
                                     Text(
-                                        text = "${expenseSummary.totalReceiptsCount} receipts detected • ${expenseSummary.formattedTotal} total",
+                                        text = if (expenseSummary.isFullyOffset) "${expenseSummary.totalReceiptsCount} records • 100% offset by vouchers (${expenseSummary.primaryCurrencySymbol}0 Net)" else "${expenseSummary.totalReceiptsCount} records • Net: ${expenseSummary.formattedNetSpend} (Spent: ${expenseSummary.formattedTotal})",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
